@@ -310,11 +310,13 @@ function printFormCell(string $fieldKey, array $fieldInfo, string $fieldName): v
 //   the keys being a subset of the keys in $fields.
 // - $rowId is an optional parameter. If specified, it should contain a prefix
 //   and a field key, which will be used to build an HTML `id` for each row.
+// - $searchable is an optional parameter. If specified, the table will be
+//   searchable (see htdocs/script.js).
 // The key 'extra' in a record is always treated as a JSON object.
 // The key 'unapproved' is also special. If it is truthy, the row for the record
 // is tagged with the 'unapproved' CSS class.
-function printTable(array /*<array>*/ $fields, array /*<array>*/ $records, array $rowId = NULL): void {
-    echo '<table>';
+function printTable(array /*<array>*/ $fields, array /*<array>*/ $records, array $rowId = NULL, bool $searchable = FALSE): void {
+    echo '<table', ($searchable ? ' class=searchable-table' : ''), '>';
 
     echo '<thead>';
     echo '<tr>';

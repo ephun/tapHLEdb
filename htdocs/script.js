@@ -135,6 +135,32 @@
         clearFile();
     }
 
+    function processSearchableTable(table) {
+        var rows = [];
+        for (var i = 0; i < table.rows.length; i++) {
+            var row = table.rows[i];
+            if (row.parentElement.tagName === 'THEAD') {
+                continue;
+            }
+            rows.push({
+                element: row,
+                textContent: row.textContent.toLowerCase(),
+            });
+        }
+        var label = document.createElement('label');
+        label.textContent = 'Search: ';
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.oninput = function () {
+            var query = input.value.toLowerCase();
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].element.style.display = (rows[i].textContent.includes(query) ? '' : 'none');
+            }
+        };
+        label.appendChild(input);
+        table.parentElement.insertBefore(label, table);
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
         var times = document.getElementsByTagName("time");
         for (var i = 0; i < times.length; i++) {
@@ -144,6 +170,11 @@
         var imageFields = document.getElementsByClassName('image-upload');
         for (var i = 0; i < imageFields.length; i++) {
             processImageUploadField(imageFields[i]);
+        }
+
+        var searchableTables = document.getElementsByClassName('searchable-table');
+        for (var i = 0; i < searchableTables.length; i++) {
+            processSearchableTable(searchableTables[i]);
         }
     });
 }());

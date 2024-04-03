@@ -139,7 +139,7 @@ function listApps(bool $showUnapproved): void {
         ];
     }
 
-    printTable($columns, $rows);
+    printTable($columns, $rows, /* $rowId: */ NULL, /* searchable: */ TRUE);
 }
 
 // Returns NULL if the app isn't found.
