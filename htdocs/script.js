@@ -150,7 +150,7 @@
                 if (td.tagName !== 'TD') {
                     continue;
                 }
-                cells.push(td.textContent);
+                cells.push(td.textContent.trim().toLowerCase());
             }
             rows.push({
                 element: row,
