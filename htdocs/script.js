@@ -136,17 +136,32 @@
     }
 
     function processSearchableTable(table) {
+        // Collect data about each row
+
         var rows = [];
         for (var i = 0; i < table.rows.length; i++) {
             var row = table.rows[i];
             if (row.parentElement.tagName === 'THEAD') {
                 continue;
             }
+            var cells = [];
+            for (var j = 0; j < row.children.length; j++) {
+                var td = row.children[j];
+                if (td.tagName !== 'TD') {
+                    continue;
+                }
+                cells.push(td.textContent);
+            }
             rows.push({
                 element: row,
+                parentElement: row.parentElement,
                 textContent: row.textContent.toLowerCase(),
+                cells: cells,
             });
         }
+
+        // Implement search
+
         var label = document.createElement('label');
         label.textContent = 'Search: ';
         var input = document.createElement('input');
@@ -159,6 +174,92 @@
         };
         label.appendChild(input);
         table.parentElement.insertBefore(label, table);
+
+        // Implement sorting
+
+        var sortBy = null;
+        var sortAscending = null;
+        var columns = [];
+
+        for (var i = 0; i < table.tHead.rows[0].children.length; i++) {
+            var th = table.tHead.rows[0].children[i];
+            if (th.tagName !== 'TH') {
+                continue;
+            }
+            columns.push({
+                element: th,
+                button: null,
+            });
+        }
+        for (var i = 0; i < columns.length; i++) {
+            var column = columns[i];
+            // Hack to fix layout, see style.css
+            column.element.innerHTML = '<span class=sortable-column-header><span class=sortable-column-button></span><span class=sortable-column-text>' + column.element.innerHTML + '</span></span>';
+            var button = document.createElement('button');
+            button.className = 'sortable-column-button';
+            (function (button, i) {
+                button.onclick = function () {
+                    if (sortBy === i) {
+                        if (sortAscending) {
+                            sortAscending = false;
+                        } else {
+                            sortBy = null;
+                        }
+                    } else {
+                        sortBy = i;
+                        sortAscending = true;
+                    }
+                    updateButtons();
+                    sort();
+                };
+            }(button, i));
+            column.element.firstChild.firstChild.appendChild(button);
+            column.button = button;
+        }
+        function updateButtons() {
+            for (var i = 0; i < columns.length; i++) {
+                var button = columns[i].button;
+                if (sortBy === i) {
+                    if (sortAscending) {
+                        button.textContent = '▲';
+                        button.title = 'Click to sort by this column (descending)';
+                    } else {
+                        button.textContent = '▼';
+                        button.title = 'Click to stop sorting by this column';
+                    }
+                } else {
+                    button.textContent = '-';
+                    button.title = 'Click to sort by this column (ascending)';
+                }
+            }
+        }
+        updateButtons();
+        function sort() {
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].parentElement.removeChild(rows[i].element);
+            }
+            var rowsSorted;
+            if (sortBy === null) {
+                rowsSorted = rows;
+            } else {
+                rowsSorted = rows.slice().sort(function (a, b) {
+                    a = a.cells[sortBy];
+                    b = b.cells[sortBy];
+                    var ordering;
+                    if (a < b) {
+                        ordering = -1;
+                    } else if (a > b) {
+                        ordering = 1;
+                    } else {
+                        ordering = 0;
+                    }
+                    return sortAscending ? ordering : -ordering;
+                });
+            }
+            for (var i = 0; i < rowsSorted.length; i++) {
+                rowsSorted[i].parentElement.appendChild(rowsSorted[i].element);
+            }
+        }
     }
 
     document.addEventListener("DOMContentLoaded", function () {

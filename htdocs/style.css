@@ -76,6 +76,19 @@ th > .required {
     color: red;
     font-weight: normal
 }
+.sortable-column-header {
+    display: table-row;
+}
+.sortable-column-button, .sortable-column-text {
+    display: table-cell;
+    vertical-align: middle;
+}
+.sortable-column-button {
+    padding-right: 0.3em;
+}
+.sortable-column-button > button {
+    font-family: monospace;
+}
 
 input.image-upload ~ button { /* clear button */
     margin-left: 0.5em;
