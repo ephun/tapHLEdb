@@ -18,9 +18,6 @@ require 'header.phpt';
 <input type=submit value="Submit report for a new app">
 </form>
 
-<h2>Legend</h2>
-<?php printRatingsLegend(); ?>
-
 <?php
 
 require 'footer.phpt';

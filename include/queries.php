@@ -139,6 +139,10 @@ function listApps(bool $showUnapproved): void {
         ];
     }
 
+    echo "<h3>Legend/Stats</h3>";
+    printRatingsLegend($rows);
+
+    echo "<h3>List</h3>";
     printTable($columns, $rows, /* $rowId: */ NULL, /* searchable: */ TRUE);
 }
 

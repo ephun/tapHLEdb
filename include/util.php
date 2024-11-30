@@ -400,8 +400,14 @@ function printRecordForm(array /*<array>*/ $fields, string $recordName): void {
     echo '</table>';
 }
 
-function printRatingsLegend(): void {
-    $columns = [
+function printRatingsLegend(array $appRows = NULL): void {
+    $columns = [];
+    if ($appRows !== NULL) {
+        $columns['count'] = [
+            'name' => 'Number of apps',
+        ];
+    }
+    $columns += [
         'rating' => [
             'name' => 'Rating',
             'rating' => TRUE,
@@ -410,11 +416,22 @@ function printRatingsLegend(): void {
             'name' => 'Description',
         ],
     ];
+    if ($appRows !== NULL) {
+        $columns['count'] = [
+            'name' => '# of apps',
+        ];
+        $ratingStats = [];
+        foreach ($appRows as $appRow) {
+            $appRating = $appRow['best_rating'];
+            $ratingStats[$appRating] = ($ratingStats[$appRating] ?? 0) + 1;
+        }
+    }
     $rows = [];
     for ($i = 1; $i <= 5; $i++) {
         $rows[] = [
             'rating' => $i,
             'description' => RATINGS[$i]['description'],
+            'count' => $ratingStats[$i] ?? 0,
         ];
     }
     printTable($columns, $rows);
