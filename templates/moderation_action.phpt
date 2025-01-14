@@ -26,6 +26,7 @@ if ($objectKind === 'app') {
         exit;
     }
     $appId = (int)$reportInfo['app_id'];
+    $versionId = (int)$reportInfo['version_id'];
 } else {
     throw new Error;
 }
@@ -42,12 +43,22 @@ $success = FALSE;
 try {
     if ($moderationAction === 'approve') {
         $userId = createOrGetUserId($session['external_user_id'], $session['external_username']);
+        $up = (($_GET['up'] ?? '0') === '1');
         if ($objectKind === 'app') {
             approveApp($appId, $userId);
         } else if ($objectKind === 'version') {
             approveVersion($versionId, $userId);
+            if ($up) {
+                // These queries do nothing if the item is already approved.
+                approveApp($appId, $userId);
+            }
         } else if ($objectKind === 'report') {
             approveReport($reportId, $userId);
+            if ($up) {
+                // These queries do nothing if the item is already approved.
+                approveVersion($versionId, $userId);
+                approveApp($appId, $userId);
+            }
         } else {
             throw new Error;
         }

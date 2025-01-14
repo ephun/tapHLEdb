@@ -174,26 +174,37 @@ function getApp(int $id): ?array {
 }
 
 // Helper for printApp()/listVersionsForApp()/listReportsForApp()
-function moderationActionButtons(string $urlPrefix, string $idColumn, string $label): array {
-    return [
-        [
+function moderationActionButtons(string $urlPrefix, string $idColumn, string $label, bool $topLevel): array {
+    $buttons = [];
+    if (!$topLevel) {
+        $buttons[] = [
             'action_prefix' => $urlPrefix,
             'action_column' => $idColumn,
-            'action_suffix' => '/approve',
+            'action_suffix' => '/approve?up=1',
             'method' => 'post',
-            'label' => '✅ Approve',
-            'onsubmit' => 'return confirm("Are you sure you want to ✅ approve this ' . $label . '?")',
+            'label' => '⬆️✅ Approve upwards',
+            'onsubmit' => 'return confirm("Are you sure you want to ✅ approve this ' . $label . ' and ⬆️ any higher-level objects?")',
             'depends_on_column' => 'unapproved',
-        ],
-        [
-            'action_prefix' => $urlPrefix,
-            'action_column' => $idColumn,
-            'action_suffix' => '/delete',
-            'method' => 'post',
-            'label' => '🚮 Delete',
-            'onsubmit' => 'return confirm("Are you sure you want to 🚮 DELETE this ' . $label . '? This action CANNOT BE UNDONE.")',
-        ]
+        ];
+    }
+    $buttons[] = [
+        'action_prefix' => $urlPrefix,
+        'action_column' => $idColumn,
+        'action_suffix' => '/approve',
+        'method' => 'post',
+        'label' => '✅ Approve',
+        'onsubmit' => 'return confirm("Are you sure you want to ✅ approve this ' . $label . '?")',
+        'depends_on_column' => 'unapproved',
     ];
+    $buttons[] = [
+        'action_prefix' => $urlPrefix,
+        'action_column' => $idColumn,
+        'action_suffix' => '/delete',
+        'method' => 'post',
+        'label' => '🚮 Delete',
+        'onsubmit' => 'return confirm("Are you sure you want to 🚮 DELETE this ' . $label . '? This action CANNOT BE UNDONE.")',
+    ];
+    return $buttons;
 }
 
 // Input comes from getApp().
@@ -232,7 +243,7 @@ function printApp(array $appInfo, bool $moderatorView): void {
         $fields += [
             '_buttons' => [
                 'name' => '',
-                'buttons' => moderationActionButtons('/apps/', 'app_id', 'app'),
+                'buttons' => moderationActionButtons('/apps/', 'app_id', 'app', /* topLevel: */ TRUE),
             ],
         ];
     }
@@ -492,7 +503,7 @@ function listVersionsForApp(int $appId, bool $showUnapproved, bool $moderatorVie
         ]
     ];
     if ($moderatorView) {
-        foreach (moderationActionButtons('/versions/', 'version_id', 'version') as $button) {
+        foreach (moderationActionButtons('/versions/', 'version_id', 'version', /* topLevel: */ FALSE) as $button) {
             $buttons[] = $button;
         }
     }
@@ -766,7 +777,7 @@ function listReportsForApp(int $appId, bool $showUnapproved, bool $moderatorView
         $columns += [
             '_buttons' => [
                 'name' => '',
-                'buttons' => moderationActionButtons('/reports/', 'report_id', 'report'),
+                'buttons' => moderationActionButtons('/reports/', 'report_id', 'report', /* topLevel: */ FALSE),
             ],
         ];
     }
