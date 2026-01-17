@@ -59,7 +59,7 @@ function listApps(bool $showUnapproved): void {
         SELECT
             apps.app_id AS app_id,
             name,
-            COALESCE(version_summaries.last_updated, apps.created) AS last_updated,
+            MAX(version_summaries.last_updated, version_summaries.last_updated2, apps.created) AS last_updated,
             (approved IS NULL) AS unapproved,
             version_summaries.best_rating AS best_rating,
             extra
@@ -70,7 +70,8 @@ function listApps(bool $showUnapproved): void {
             (
                 SELECT
                     MAX(report_summaries.rating) AS best_rating,
-                    MAX(report_summaries.last_updated, versions.created) AS last_updated,
+                    MAX(report_summaries.last_updated) AS last_updated,
+                    MAX(versions.created) as last_updated2,
                     app_id
                 FROM
                     versions
@@ -420,7 +421,7 @@ function listVersionsForApp(int $appId, bool $showUnapproved, bool $moderatorVie
             versions.version_id AS version_id,
             name,
             report_summaries.rating AS best_rating,
-            COALESCE(report_summaries.last_updated, versions.created) AS last_updated,
+            MAX(report_summaries.last_updated, versions.created) AS last_updated,
             users.external_username AS created_by_username,
             (approved IS NULL) AS unapproved,
             extra
