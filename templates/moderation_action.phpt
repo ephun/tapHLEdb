@@ -72,6 +72,20 @@ try {
         } else {
             throw new Error;
         }
+    } else if ($moderationAction === 'reparent') {
+        if ($objectKind === 'report') {
+            if (!isset($_POST['version'])) {
+                throw new Error;
+            }
+            $versionId = (int)($_POST['version'] ?? 0);
+            if (getVersion($versionId) === NULL) {
+                show404();
+                exit;
+            }
+            reparentReport($reportId, $versionId);
+        } else {
+            throw new Error;
+        }
     } else {
         throw new Error;
     }

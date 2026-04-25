@@ -62,6 +62,11 @@ if ($path === '/') {
     $objectKind = 'report';
     $moderationAction = 'delete';
     require '../templates/moderation_action.phpt';
+} else if (preg_match('#^/reports/(\d+)/reparent/$#', $path, $matches) === 1) {
+    $reportId = (int)$matches[1];
+    $objectKind = 'report';
+    $moderationAction = 'reparent';
+    require '../templates/moderation_action.phpt';
 } else if (preg_match('#^/reports/(\d+)/screenshot/$#', $path, $matches) === 1) {
     $reportId = (int)$matches[1];
     require '../templates/report_screenshot.phpt';

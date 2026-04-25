@@ -199,8 +199,16 @@ function printExternalUsername(string $externalUsername): void {
 }
 
 function printButtonForm(array $buttonInfo): void {
-    echo '<form action="', htmlspecialchars($buttonInfo['action']), '"';
-    echo ' method="', htmlspecialchars($buttonInfo['method']), '"';
+    echo '<form';
+    if (isset($buttonInfo['class'])) {
+        echo ' class="', htmlspecialchars($buttonInfo['class']), '"';
+    }
+    if (isset($buttonInfo['action'])) {
+        echo ' action="', htmlspecialchars($buttonInfo['action'] ?? ''), '"';
+    }
+    if (isset($buttonInfo['method'])) {
+        echo ' method="', htmlspecialchars($buttonInfo['method'] ?? ''), '"';
+    }
     if (isset($buttonInfo['onsubmit'])) {
         echo ' onsubmit="', htmlspecialchars($buttonInfo['onsubmit']), '"';
     }
@@ -208,7 +216,12 @@ function printButtonForm(array $buttonInfo): void {
     if (isset($buttonInfo['param_name']) && isset($buttonInfo['param_value'])) {
         echo '<input type=hidden name="', htmlspecialchars($buttonInfo['param_name']), '" value="', htmlspecialchars($buttonInfo['param_value']), '">';
     }
-    echo '<input type=submit value="', htmlspecialchars($buttonInfo['label']), '">';
+    echo '<input type=submit';
+    echo ' value="', htmlspecialchars($buttonInfo['label']), '"';
+    if (($buttonInfo['disabled'] ?? FALSE) === TRUE) {
+        echo ' disabled';
+    }
+    echo '>';
     echo '</form>';
 }
 

@@ -262,6 +262,51 @@
         }
     }
 
+    // UI for the reparenting moderation action: click on “Reparent” for the
+    // report that needs moving, then click on “Reparent here” for destination
+    // version it should be moved to.
+    var currentReparentSource = null;
+    function processReparentSource(reparentSource, reparentSources, reparentTargets) {
+        var reparentSourceButton = reparentSource.querySelector('input[type=submit]');
+        reparentSource.onsubmit = function () {
+            if (currentReparentSource !== null) {
+                currentReparentSource.querySelector('input[type=submit]').className = '';
+            }
+            if (currentReparentSource === reparentSource) {
+                currentReparentSource = null;
+                for (var i = 0; i < reparentTargets.length; i++) {
+                    reparentTargets[i].querySelector('input[type=submit]').disabled = true;
+                }
+            } else {
+                currentReparentSource = reparentSource;
+                reparentSourceButton.className = 'current-reparent-source';
+                for (var i = 0; i < reparentTargets.length; i++) {
+                    reparentTargets[i].querySelector('input[type=submit]').disabled = false;
+                }
+            }
+            return false; // Don't actually submit the form
+        };
+        reparentSourceButton.disabled = false;
+    }
+    function processReparentTarget(reparentTarget) {
+        reparentTarget.onsubmit = function () {
+            if (currentReparentSource !== null) {
+                // The form for the reparent source (report) contains everything
+                // needed for the reparenting operation, except for the version
+                // ID, which is in the form for the reparent target (version),
+                // as a <input type=hidden>. So when we can just move that field
+                // to the other form and submit it directly (which bypasses the
+                // onsubmit handler).
+                if (confirm("Are you sure you want to ↗️ reparent this report?")) {
+                    var hiddenField = reparentTarget.querySelector('input[type=hidden]');
+                    currentReparentSource.appendChild(hiddenField);
+                    currentReparentSource.submit();
+                }
+            }
+            return false; // Don't actually submit the form
+        };
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
         var times = document.getElementsByTagName("time");
         for (var i = 0; i < times.length; i++) {
@@ -276,6 +321,15 @@
         var searchableTables = document.getElementsByClassName('searchable-table');
         for (var i = 0; i < searchableTables.length; i++) {
             processSearchableTable(searchableTables[i]);
+        }
+
+        var reparentSources = document.getElementsByClassName('reparent-source');
+        var reparentTargets = document.getElementsByClassName('reparent-target');
+        for (var i = 0; i < reparentSources.length; i++) {
+            processReparentSource(reparentSources[i], reparentSources, reparentTargets);
+        }
+        for (var i = 0; i < reparentTargets.length; i++) {
+            processReparentTarget(reparentTargets[i]);
         }
     });
 }());

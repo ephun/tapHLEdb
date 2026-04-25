@@ -507,6 +507,13 @@ function listVersionsForApp(int $appId, bool $showUnapproved, bool $moderatorVie
         foreach (moderationActionButtons('/versions/', 'version_id', 'version', /* topLevel: */ FALSE) as $button) {
             $buttons[] = $button;
         }
+        $buttons[] = [
+            'label' => '🎯 Reparent here',
+            'param_name' => 'version',
+            'param_column' => 'version_id',
+            'disabled' => TRUE,
+            'class' => 'reparent-target',
+        ];
     }
 
     $columns += [
@@ -775,10 +782,21 @@ function listReportsForApp(int $appId, bool $showUnapproved, bool $moderatorView
     ];
 
     if ($moderatorView) {
+        $buttons = moderationActionButtons('/reports/', 'report_id', 'report', /* topLevel: */ FALSE);
+        $buttons[] = [
+            'label' => '↗️ Reparent',
+            'action_prefix' => '/reports/',
+            'action_column' => 'report_id',
+            'action_suffix' => '/reparent',
+            'method' => 'post',
+            'disabled' => TRUE,
+            'class' => 'reparent-source',
+        ];
+
         $columns += [
             '_buttons' => [
                 'name' => '',
-                'buttons' => moderationActionButtons('/reports/', 'report_id', 'report', /* topLevel: */ FALSE),
+                'buttons' => $buttons,
             ],
         ];
     }
@@ -1005,6 +1023,25 @@ function deleteReport(int $reportId): void {
         ;
     ', [':report_id' => $reportId]);
     cleanUpUsers();
+}
+
+
+// It is recommended to call this as part of a transaction (in particular, to
+// ensure this will not orphan the report).
+// There is no audit log or undo!
+function reparentReport(int $reportId, int $versionId): void {
+    query('
+        UPDATE
+            reports
+        SET
+            version_id = :version_id
+        WHERE
+            report_id = :report_id
+        ;
+    ', [
+        ':report_id' => $reportId,
+        ':version_id' => $versionId,
+    ]);
 }
 
 // Gets the internal user ID using an external user ID. See createOrGetUserId()

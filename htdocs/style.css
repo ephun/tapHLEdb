@@ -94,6 +94,10 @@ input.image-upload ~ button { /* clear button */
     margin-left: 0.5em;
 }
 
+.current-reparent-source {
+    outline: 3px dashed fuchsia;
+}
+
 footer {
     font-size: smaller;
 }
