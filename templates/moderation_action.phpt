@@ -72,6 +72,12 @@ try {
         } else {
             throw new Error;
         }
+    } else if ($moderationAction === 'delete_screenshot') {
+        if ($objectKind === 'report') {
+            deleteReportScreenshot($reportId);
+        } else {
+            throw new Error;
+        }
     } else if ($moderationAction === 'reparent') {
         if ($objectKind === 'report') {
             if (!isset($_POST['version'])) {

@@ -44,7 +44,7 @@ require 'header.phpt';
 <?php printRatingsLegend(); ?>
 
 <h3>Screenshots</h3>
-<?php listReportScreenshotsForApp($appId, $showUnapproved); ?>
+<?php listReportScreenshotsForApp($appId, $showUnapproved, signedInUserIsModerator($session)); ?>
 
 <?php
 

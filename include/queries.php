@@ -804,7 +804,7 @@ function listReportsForApp(int $appId, bool $showUnapproved, bool $moderatorView
     printTable($columns, $rows, ['report-', 'report_id']);
 }
 
-function listReportScreenshotsForApp(int $appId, bool $showUnapproved): void {
+function listReportScreenshotsForApp(int $appId, bool $showUnapproved, bool $moderatorView): void {
     $rows = query('
         SELECT
             report_id
@@ -830,7 +830,16 @@ function listReportScreenshotsForApp(int $appId, bool $showUnapproved): void {
         $reportId = (string)$row['report_id'];
         echo '<figure id="', htmlspecialchars('report-screenshot-' . $reportId), '">';
         echo '<img src="', htmlspecialchars('/reports/' . $reportId . '/screenshot'), '" alt="Screenshot">';
-        echo '<figcaption><a href="#report-', htmlspecialchars($reportId), '">Go to report</a></figcaption>';
+        echo '<figcaption>';
+        if ($moderatorView) {
+            printButtonForm([
+                'action' => '/reports/' . $reportId . '/screenshot/delete',
+                'method' => 'post',
+                'label' => '🚮 Delete screenshot',
+                'onsubmit' => 'return confirm("Are you sure you want to 🚮 DELETE this report\'s screenshot? This action CANNOT BE UNDONE.")',
+            ]);
+        }
+        echo '<a href="#report-', htmlspecialchars($reportId), '">Go to report</a></figcaption>';
         echo '</figure>';
     }
 }
@@ -1025,6 +1034,17 @@ function deleteReport(int $reportId): void {
     cleanUpUsers();
 }
 
+// It is recommended to call this as part of a transaction.
+// There is no audit log or undo!
+function deleteReportScreenshot(int $reportId): void {
+    query('
+        DELETE FROM
+            report_screenshots
+        WHERE
+            report_id = :report_id
+        ;
+    ', [':report_id' => $reportId]);
+}
 
 // It is recommended to call this as part of a transaction (in particular, to
 // ensure this will not orphan the report).
