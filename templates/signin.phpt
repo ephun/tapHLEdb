@@ -40,7 +40,7 @@ require 'header.phpt';
 
 <p>A <strong>cookie will be set</strong> by <?=htmlspecialchars(SITE_NAME)?> when you sign in. This cookie is only used for the attribution described above.</p>
 
-<p>More information can be found in the <a href="<?=htmlspecialchars(SITE_PRIVACY_POLICY)?>">privacy policy</a>. Note that signing in with GitHub also involves the processing of your data by GitHub, which has a separate privacy policy.</p>
+<p>More information can be found in the <a href="<?=htmlspecialchars(url(SITE_PRIVACY_POLICY))?>">privacy policy</a>. Note that signing in with GitHub also involves the processing of your data by GitHub, which has a separate privacy policy.</p>
 
 <p>Click here to sign in:</p>
 

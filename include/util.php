@@ -23,6 +23,15 @@ if (!function_exists('str_ends_with')) {
     }
 }
 
+// config.php is git-ignored, so an install that predates SITE_BASE_PATH will
+// never receive it from config.example.php — and index.php and url() below read
+// it on every request. Default it here so upgrading the code alone cannot fatal
+// every page with an undefined constant. config.php declares no namespace, so
+// its constants are global and this must define a global name too.
+if (!\defined('SITE_BASE_PATH')) {
+    \define('SITE_BASE_PATH', '');
+}
+
 function initDb(): void {
     global $db;
     $db = new \PDO('sqlite:' . SITE_DB_PATH);

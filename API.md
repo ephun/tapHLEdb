@@ -10,6 +10,16 @@ convenience, not a way to bypass moderation.
 This endpoint is a tapHLE addition and is not present upstream in
 [app-compatibility-db](https://github.com/hikari-no-yume/app-compatibility-db).
 
+When the app is mounted at a subpath (`SITE_BASE_PATH` in `config.php`), the
+endpoint moves with it. The tapHLE deployment sets `SITE_BASE_PATH` to
+`/compatibility`, so its real endpoint is:
+
+```
+POST https://taphle.ephun.net/compatibility/api/report
+```
+
+Paths below are written app-relative; prepend `SITE_BASE_PATH` to each.
+
 Authentication
 --------------
 
@@ -145,7 +155,7 @@ Example
 -------
 
 ```sh
-curl -sS -X POST https://taphle.ephun.net/api/report \
+curl -sS -X POST https://taphle.ephun.net/compatibility/api/report \
   -H "Authorization: Bearer $TAPHLEDB_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
