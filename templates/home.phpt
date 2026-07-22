@@ -14,7 +14,7 @@ require 'header.phpt';
 <h2>Apps</h2>
 <?php listApps($showUnapproved); ?>
 <br>
-<form action=/reports/new method=get>
+<form action="<?=htmlspecialchars(url('/reports/new'))?>" method=get>
 <input type=submit value="Submit report for a new app">
 </form>
 

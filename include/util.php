@@ -60,9 +60,19 @@ function rollbackTransaction(): void {
     $db->rollBack();
 }
 
+// Prefix an absolute site path (leading '/') with SITE_BASE_PATH so links keep
+// working when the app is mounted at a subpath. Fragments ('#foo'), empty
+// strings, and full URLs ('https://...') are returned unchanged.
+function url(string $path): string {
+    if ($path === '' || $path[0] !== '/') {
+        return $path;
+    }
+    return SITE_BASE_PATH . $path;
+}
+
 function redirect(string $url): void {
     header('HTTP/1.1 303 See Other');
-    header('Location: ' . $url);
+    header('Location: ' . url($url));
     exit;
 }
 
@@ -213,7 +223,7 @@ function printButtonForm(array $buttonInfo): void {
         echo ' class="', htmlspecialchars($buttonInfo['class']), '"';
     }
     if (isset($buttonInfo['action'])) {
-        echo ' action="', htmlspecialchars($buttonInfo['action'] ?? ''), '"';
+        echo ' action="', htmlspecialchars(url($buttonInfo['action'] ?? '')), '"';
     }
     if (isset($buttonInfo['method'])) {
         echo ' method="', htmlspecialchars($buttonInfo['method'] ?? ''), '"';
@@ -265,7 +275,7 @@ function printCell(array $record, \stdClass $recordExtra, string $fieldKey, arra
             [$linkUrlPrefix, $linkIdField] = $fieldInfo['link'];
             $linkUrlSuffix = $fieldInfo['link'][2] ?? '';
             $linkLabel = $fieldInfo['link_label'] ?? (string)$cell;
-            echo '<a href="', htmlspecialchars($linkUrlPrefix . $record[$linkIdField] . $linkUrlSuffix), '">', htmlspecialchars($linkLabel), '</a>';
+            echo '<a href="', htmlspecialchars(url($linkUrlPrefix . $record[$linkIdField] . $linkUrlSuffix)), '">', htmlspecialchars($linkLabel), '</a>';
         }
     } else if (isset($fieldInfo['external_username'])) {
         if ($cell !== NULL) {

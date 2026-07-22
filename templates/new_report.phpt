@@ -159,7 +159,7 @@ require 'header.phpt';
 
 <p><?=htmlspecialchars(GENERAL_GUIDANCE)?></p>
 
-<form action=/reports/new method=post>
+<form action="<?=htmlspecialchars(url('/reports/new'))?>" method=post>
 <fieldset>
 <legend>New compatibility report</legend>
 
@@ -186,7 +186,7 @@ require 'header.phpt';
 </label>
 <fieldset>
 <legend>New app</legend>
-<p>Before submitting a report for a new app, <strong>please check the <a href=/apps>list of existing apps</a>.</strong></p>
+<p>Before submitting a report for a new app, <strong>please check the <a href="<?=htmlspecialchars(url('/apps'))?>">list of existing apps</a>.</strong></p>
 <p><?=htmlspecialchars(APP_GUIDANCE)?></p>
 <?php printAppForm(); ?>
 </fieldset>
@@ -217,7 +217,7 @@ require 'header.phpt';
 <fieldset>
 <legend>New version</legend>
 <?php if ($appInfo !== NULL): ?>
-<p>Before submitting a report for a new version, <strong>please check the <a href="/apps/<?=htmlspecialchars((string)$appId)?>">list of existing versions</a>.</strong></p>
+<p>Before submitting a report for a new version, <strong>please check the <a href="<?=htmlspecialchars(url('/apps/' . $appId))?>">list of existing versions</a>.</strong></p>
 <?php endif; ?>
 <p><?=htmlspecialchars(VERSION_GUIDANCE)?></p>
 <?php printVersionForm(); ?>

@@ -21,14 +21,14 @@ echo htmlspecialchars(SITE_NAME);
 
 ?></title>
 
-<link rel=stylesheet href=/style.css>
-<script src=/script.js></script>
+<link rel=stylesheet href="<?=htmlspecialchars(url('/style.css'))?>">
+<script src="<?=htmlspecialchars(url('/script.js'))?>"></script>
 
 <div id=breadcrumbs>
 <?php if (PARENT_SITE_NAME !== NULL): ?>
 <a href="<?=htmlspecialchars(PARENT_SITE_URL)?>"><?=htmlspecialchars(PARENT_SITE_NAME)?></a> &gt;
 <?php endif; ?>
-<h1><a href=/><?=htmlspecialchars(SITE_NAME)?></a></h1>
+<h1><a href="<?=htmlspecialchars(url('/'))?>"><?=htmlspecialchars(SITE_NAME)?></a></h1>
 <?php
 
 if (!empty($breadcrumbs)) {

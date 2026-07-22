@@ -20,6 +20,14 @@ require_once '../include/oauth.php';
 initDb();
 
 $path = explode('?', $_SERVER['REQUEST_URI'] ?? '', 2)[0];
+// Strip SITE_BASE_PATH so routes below always match against the app-relative
+// path, regardless of whether the app is served at the domain root or a subpath.
+if (SITE_BASE_PATH !== '' && str_starts_with($path, SITE_BASE_PATH)) {
+    $path = substr($path, strlen(SITE_BASE_PATH));
+}
+if ($path === '') {
+    $path = '/';
+}
 if (!str_ends_with($path, '/')) {
     $path .= '/';
 }

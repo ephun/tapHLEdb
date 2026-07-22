@@ -829,7 +829,7 @@ function listReportScreenshotsForApp(int $appId, bool $showUnapproved, bool $mod
     foreach ($rows as $row) {
         $reportId = (string)$row['report_id'];
         echo '<figure id="', htmlspecialchars('report-screenshot-' . $reportId), '">';
-        echo '<img src="', htmlspecialchars('/reports/' . $reportId . '/screenshot'), '" alt="Screenshot">';
+        echo '<img src="', htmlspecialchars(url('/reports/' . $reportId . '/screenshot')), '" alt="Screenshot">';
         echo '<figcaption>';
         if ($moderatorView) {
             printButtonForm([

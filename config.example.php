@@ -21,6 +21,14 @@ const SITE_PRIVACY_POLICY = "/privacy.html";
 // Path to the SQLite 3 database, relative to the htdocs directory
 const SITE_DB_PATH = '../app_db.sqlite3';
 
+// Base path this app is mounted under, no trailing slash (e.g. '/compatibility').
+// Leave as '' when serving from the domain root. When set, the app strips this
+// prefix from incoming request paths and prefixes it back onto all internal
+// URLs it emits. Register your GitHub OAuth callback at
+// https://<domain><SITE_BASE_PATH>/signin/github-oauth-callback to match, and
+// update any external API clients to POST to <SITE_BASE_PATH>/api/report.
+const SITE_BASE_PATH = '';
+
 // Plain-text name and URL for the license that contributions are made under.
 // Don't change this once contributions have been made! There is no tracking for
 // license changes, so the wrong license will be displayed next to old
