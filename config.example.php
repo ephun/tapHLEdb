@@ -1,14 +1,17 @@
 <?php
 
-// Human-readable name of the site, as plain text
-const SITE_NAME = 'Example Emulator app compatibility database';
+// tapHLE app compatibility database configuration.
+//
+// Copy this file to config.php and fill in the GitHub OAuth secrets. config.php
+// is git-ignored so real secrets never enter version control. Most fields are
+// data-driven from this file; see the field format documented below.
 
-// If this database belongs to a larger site (for example, the main website of
-// your emulator), you can specify its name and URL here in plain text, and
-// they'll be linked at the top of the page. If the name is set to NULL, they
-// won't be.
-const PARENT_SITE_NAME = NULL; // e.g. 'Example Emulator main site'
-const PARENT_SITE_URL = NULL; // e.g. 'https://emulator.example.org'
+// Human-readable name of the site, as plain text
+const SITE_NAME = 'tapHLE app compatibility database';
+
+// tapHLE's main site, linked at the top of every page. Set to NULL to hide.
+const PARENT_SITE_NAME = 'tapHLE';
+const PARENT_SITE_URL = 'https://github.com/ephun/tapHLE';
 
 // URL of the privacy policy of the site (may be external).
 // Make sure this doesn't contradict templates/signin.phpt!
@@ -22,164 +25,158 @@ const SITE_DB_PATH = '../app_db.sqlite3';
 // Don't change this once contributions have been made! There is no tracking for
 // license changes, so the wrong license will be displayed next to old
 // contributions, which is a license violation in and of itself!
+// CC BY 4.0 matches touchHLE's app database and keeps the data freely reusable
+// with attribution.
 const SITE_CONTENT_LICENSE_NAME = 'CC BY 4.0 International';
 const SITE_CONTENT_LICENSE_URL = 'https://creativecommons.org/licenses/by/4.0/';
 
-// Compatibility ratings used in reports. These must be numbered 1 to 5,
-// with larger numbers being better. For each rating, there should be a symbol
-// (e.g. a star count) and a short description of what this rating means.
-// This example rating system is heavily inspired by Dolphin's.
+// Compatibility ratings used in reports (1 to 5, larger is better). These match
+// tapHLE's rating scale in the main repository's compatibility documentation.
 const RATINGS = [
     1 => [
         'symbol' => '⭐️',
-        'description' => 'Completely broken: app crashes immediately without any user interaction.',
+        'description' => 'Broken — the app does not reach usable content (e.g. it crashes before or during launch).',
     ],
     2 => [
         'symbol' => '⭐️⭐️',
-        'description' => 'Only (part of) the main menu, intro or similar is working.',
+        'description' => 'Starts — an intro or menu works, but gameplay does not.',
     ],
     3 => [
         'symbol' => '⭐️⭐️⭐️',
-        'description' => 'Some of the main content of the app works, but with major issues.',
+        'description' => 'In game — some gameplay works, but major problems remain.',
     ],
     4 => [
         'symbol' => '⭐️⭐️⭐️⭐️',
-        'description' => 'The main content of the app works (e.g. entire game is playable) with only small issues.',
+        'description' => 'Playable — the whole app can be used, with only small problems.',
     ],
     5 => [
         'symbol' => '⭐️⭐️⭐️⭐️⭐️',
-        'description' => 'Everything works. The app is fully usable.',
+        'description' => 'Fully working — everything important works.',
     ],
 ];
 
-// Plain text shown when submitting a new app, report or version. There are also
-// specific texts for each of those, so only put general stuff here.
-const GENERAL_GUIDANCE = "Do not link to pirated content in your submission.";
+// Plain text shown when submitting a new app, report or version.
+const GENERAL_GUIDANCE = "Every rating must come from an actual tapHLE run on Windows using the exact app build. Do not link to pirated content. Coding agents may confirm up to 3 stars (2 = the app reaches a stable screen; 3 = the gameplay loop starts and persists); 4 and 5 stars require human testing.";
 
 // Additional fields are stored in the JSON blob columns in the DB.
-//
-// The format for a list of fields is:
-//
-//      [
-//          'key1' => [
-//              'name' => 'Human-readable name 1',
-//              'required' => TRUE,
-//          ],
-//          'key2' => [
-//              'name' => 'Human-readable name 2',
-//              'options' => [
-//                  'option1' => 'Human-readable option name 1',
-//                  'option2' => 'Human-readable option name 2',
-//              ],
-//          ],
-//          'key3' => [
-//              'name' => 'Human-readable name 3',
-//              'at_end' => TRUE,
-//          ],
-//          ...
-//      ]
-//
-// Notes:
-//
-// - There can be any number of fields.
-// - The order of fields in this list is the order they'll show up in tables
-//   and forms.
-// - 'key1', 'key2' etc are the keys used for the fields in the JSON blob, and
-//   are also used as HTML form field names. The keys can be any string, but
-//   it is probably a good idea to only use simple ASCII identifiers.
-// - If no data for a field is found in the database, it will show up as blank.
-// - If a field is removed from the list, it won't show up on the site, but its
-//   data is still in the database.
-// - 'name' is the only required key when describing a field.
-// - If 'at_end' is TRUE, the field appears after all the built-in fields.
-//   Otherwise, it appears between the name and the rating or creation date.
-// - If 'required' is TRUE, the field is marked as required and the form can't
-//   be submitted without entering something for it.
-// - They are plain-text, single-line fields by default. If you specify
-//   'options' they become multiple-choice. The keys of that field are the
-//   values stored in the JSON and sent in the form, whereas the values are
-//   human-readable names. Therefore, you can add new keys and change the values
-//   but you probably don't want to rename or remove keys. Don't use the key '',
-//   that's reserved for when a selection hasn't been made.
+// Format: 'key' => ['name' => 'Human name', 'required' => TRUE?, 'options' => [...]?, 'at_end' => TRUE?].
+// Fields with 'options' become multiple-choice; the option keys are stored.
 
-// Additional fields for apps
+// App-level identity comes from the app's own Info.plist (CFBundleIdentifier is
+// the true identity; the app's display name is the built-in `name` field).
 const APP_EXTRA_FIELDS = [
-    'developer_publisher' => [
-        'name' => 'Developer/Publisher',
+    'bundle_identifier' => [
+        'name' => 'Bundle identifier',
         'required' => TRUE,
+    ],
+    'developer_publisher' => [
+        'name' => 'Developer / publisher',
     ],
     'release_year' => [
         'name' => 'Release year',
     ],
-    'bitness' => [
-        'name' => 'Bitness',
-        'options' => [
-            '32' => '32-bit',
-            '64' => '64-bit',
-            '128' => '128-bit',
-            'quantum' => 'qubit',
-        ],
+];
+
+const APP_GUIDANCE = "Name the app by its display name. The bundle identifier (e.g. com.example.game) is its true identity and comes from the app's Info.plist.";
+
+// Which APP_EXTRA_FIELDS key is the app's true identity. The /api/report
+// endpoint uses it to attach a submission to the existing app with the same
+// identity instead of creating a duplicate, so repeated telemetry from the same
+// app does not fill the database with copies. Set to NULL to disable that
+// matching (every API submission without an explicit app_id then creates a new
+// app). The display name is deliberately not used: two apps can share one.
+const APP_IDENTITY_FIELD = 'bundle_identifier';
+
+// Version identity, also from Info.plist. The built-in `name` field holds the
+// user-facing version label (e.g. \"1.3.5\").
+const VERSION_EXTRA_FIELDS = [
+    'bundle_version' => [
+        'name' => 'Bundle version (CFBundleVersion)',
+        'required' => TRUE,
+    ],
+    'short_version' => [
+        'name' => 'Short version (CFBundleShortVersionString)',
+    ],
+    'minimum_os_version' => [
+        'name' => 'Minimum OS version',
     ],
 ];
 
-// Plain text shown when submitting a new app. This might be used to explain,
-// for example, how the name field should be used.
-const APP_GUIDANCE = "";
-
-// Additional fields for versions
-const VERSION_EXTRA_FIELDS = [];
-
-// Plain text shown when submitting a new version.
 const VERSION_GUIDANCE = "";
 
-// Additional fields for reports
+// Reports record who/what produced the result (the provenance is the confidence
+// signal), the tapHLE build, the Windows host, and the current frontier.
 const REPORT_EXTRA_FIELDS = [
-    'operating_system' => [
-        'name' => 'Operating system',
+    'source_type' => [
+        'name' => 'Result source',
         'required' => TRUE,
+        'options' => [
+            'human' => 'Human tester',
+            'agent' => 'Coding agent',
+            'telemetry' => 'Automatic telemetry',
+        ],
+    ],
+    'source_name' => [
+        'name' => 'Source name (person, agent model, or telemetry rule)',
+    ],
+    'taphle_version' => [
+        'name' => 'tapHLE version / commit',
+        'required' => TRUE,
+    ],
+    'cpu' => [
+        'name' => 'CPU',
     ],
     'gpu' => [
         'name' => 'GPU',
-        'required' => TRUE,
     ],
-    'remarks' => [
-        'name' => 'Remarks',
+    'frontier' => [
+        'name' => 'Current frontier (where it stops)',
         'at_end' => TRUE,
     ],
 ];
 
-// Whether to allow attaching a screenshot to a report.
-// Currently there is no configurability for the screenshot processing: they
-// always become JPEGs with a maximum size of 640 on either axis, 80% quality,
-// 150KB upload size limit.
+const REPORT_GUIDANCE = "Record the exact tapHLE version and the current frontier (the selector, function, or panic where it stops). Keep it to one line — narrative debugging notes belong in the app's dev-docs/app-notes entry, not here.";
+
+// Whether to allow attaching a screenshot to a report (JPEG, <=640px, ~150KB).
 const REPORT_SCREENSHOTS_ALLOWED = TRUE;
 
-// Plain text shown when submitting a new report.
-const REPORT_GUIDANCE = "";
-
-// External user IDs of moderators empowered to approve and delete reports. Note
-// that there is not currently an audit log for removals!
-// The only currently accepted format for an external user ID is "github:xxxxxx"
-// where xxxxxx is the GitHub user ID (not the same as the username).
-// You can find the user ID at https://api.github.com/users/<username here>.
+// Moderators empowered to approve and delete reports. Format "github:<numeric
+// user id>" (NOT the username). Find an id at https://api.github.com/users/<username>.
 const MODERATOR_EXTERNAL_USER_IDS = [
-    // "github:xxxxxx" => TRUE,
+    "github:48892512" => TRUE, // ephun
 ];
 
-// External user IDs of users to be excluded from the unapproved reports limit.
-// Users who aren't in this list must wait for their most recent report to be
-// approved or deleted before making a new one.
+// Users exempt from the "one unapproved report at a time" limit.
 const UNLIMITED_EXTERNAL_USER_IDS = [
-    // "github:xxxxxx" => TRUE,
+    "github:48892512" => TRUE, // ephun
 ];
 
-// GitHub API keys for authentication.
-// Register the app at https://github.com/settings/applications/new.
-// The callback URL must be "https://<your domain here>/signin/github-oauth-callback".
-// Be sure to use a different application for testing and for the real site,
-// and never make these public.
-const GITHUB_CLIENT_ID = "aaaaaaaaaaaaaaaaaaaa";
-const GITHUB_CLIENT_SECRET = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+// GitHub OAuth keys. Register at https://github.com/settings/applications/new
+// with callback "https://<your domain>/signin/github-oauth-callback". Use
+// SEPARATE apps for testing and production. Never commit real values.
+const GITHUB_CLIENT_ID = "REPLACE_WITH_GITHUB_CLIENT_ID";
+const GITHUB_CLIENT_SECRET = "REPLACE_WITH_GITHUB_CLIENT_SECRET";
+
+// API tokens for programmatic report submission (tapHLE telemetry and coding
+// agents) via POST /api/report — see API.md. Each entry maps a secret token to
+// the external identity it acts as, in "service:name" form. Use a separate
+// token per source so one can be revoked on its own, generate them with a CSPRNG
+// (e.g. `openssl rand -hex 32`), and never commit real values: this file is the
+// example, and the real config.php is git-ignored.
+//
+// API submissions are always UNAPPROVED until a moderator accepts them, exactly
+// like web-form submissions.
+const API_TOKENS = [
+    // 'REPLACE_WITH_A_LONG_RANDOM_TOKEN' => 'telemetry:taphle',
+    // 'REPLACE_WITH_ANOTHER_RANDOM_TOKEN' => 'agent:claude-code',
+];
+
+// How many unapproved reports one API token may have awaiting moderation before
+// further submissions are refused with HTTP 429. The web form's stricter
+// "one pending item per user" rule is not used for the API, because every
+// submission from a token shares a single account and would stall immediately.
+// Set to 0 to disable the cap.
+const API_MAX_PENDING_REPORTS = 200;
 
 // User-Agent header used when authenticating with the GitHub API.
-const USER_AGENT = "App compatibility database (https://<your domain here>)";
+const USER_AGENT = "tapHLE app compatibility database (https://taphle.ephun.net)";

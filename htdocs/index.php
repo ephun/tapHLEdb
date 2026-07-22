@@ -83,6 +83,9 @@ if ($path === '/') {
     require '../templates/github_oauth_callback.phpt';
 } else if ($path === '/signout/') {
     require '../templates/signout.phpt';
+} else if ($path === '/api/report/') {
+    // tapHLE addition: token-authenticated JSON report submission (API.md).
+    require '../templates/api_report.phpt';
 } else {
     show404();
 }

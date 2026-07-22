@@ -193,9 +193,18 @@ function validateExtraFields(array /*<array>*/ $extraFields, array $extraInput):
 }
 
 function printExternalUsername(string $externalUsername): void {
-    $username = explode(':', $externalUsername)[1];
-    $userUrl = 'https://github.com/' . $username;
-    echo '<a href="', htmlspecialchars($userUrl), '">@', htmlspecialchars($username), '</a>';
+    $parts = explode(':', $externalUsername, 2);
+    $service = $parts[0];
+    $username = $parts[1] ?? $externalUsername;
+    if ($service === 'github') {
+        $userUrl = 'https://github.com/' . $username;
+        echo '<a href="', htmlspecialchars($userUrl), '">@', htmlspecialchars($username), '</a>';
+    } else {
+        // tapHLE addition: identities that submit through the API (telemetry or
+        // a coding agent) have no profile page, so they must not be rendered as
+        // links to a GitHub account that does not exist.
+        echo htmlspecialchars($username), ' <small>(', htmlspecialchars($service), ')</small>';
+    }
 }
 
 function printButtonForm(array $buttonInfo): void {
