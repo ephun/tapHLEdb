@@ -72,10 +72,20 @@ Requires git, PHP 7.4/8, and the SQLite 3 CLI.
 Deployment
 ----------
 
-The app assumes its own (sub)domain — e.g. `taphle.ephun.net`. Use the example
-nginx + PHP-FPM config. Only the SQLite database file must be writeable by the
-web server. Provide a real privacy policy (`privacy.example.html` is a starting
-point) and use production-only GitHub OAuth keys.
+Use the example nginx + PHP-FPM config. The app can serve from a domain root or
+from a subpath — set `SITE_BASE_PATH` in `config.php` (the tapHLE deployment uses
+`/compatibility`) and register the GitHub OAuth callback at the matching URL.
+
+The SQLite database file **and the directory containing it** must be writeable
+by the web server: SQLite creates journal files alongside the database, so a
+writeable file in a read-only directory fails on every write.
+
+Unlike upstream, `htdocs/privacy.html` is committed rather than git-ignored.
+This is a single deployment, so version-controlling the policy keeps it
+reviewable and means a deploy is just a pull. Upstream ignores it because each
+operator needs their own; anyone forking this repo should replace it. It still
+carries bracketed placeholders (contact, jurisdiction, retention periods) that
+must be filled in before it is truthful.
 
 Source layout
 -------------
