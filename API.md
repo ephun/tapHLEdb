@@ -122,6 +122,7 @@ Request
       "frontier": "onTouchesBegan: sent to _tapHLE_NSArray"
     },
     // Optional, same limits as the web form: JPEG data URL, <= ~200 KB.
+    // Omit it, or send "", when there is no screenshot.
     "screenshot": "data:image/jpeg;base64,..."
   }
 }

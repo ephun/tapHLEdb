@@ -150,6 +150,14 @@ try {
     if (!\is_int($report['rating'] ?? NULL)) {
         throw new ApiSubmissionError('report.rating must be an integer from 1 to 5');
     }
+    // createReport() treats a screenshot of '' as "none", but an absent key
+    // arrives as NULL and is rejected as a malformed data URL. The web form
+    // always posts an empty string from a hidden input, so it never hits that;
+    // a JSON client naturally omits the key entirely. Normalise so omitting it
+    // means what it obviously should.
+    if (($report['screenshot'] ?? NULL) === NULL) {
+        $report['screenshot'] = '';
+    }
     $report['version_id'] = $versionId;
     $report['created_by'] = $userId;
     $reportId = createReport($report);
