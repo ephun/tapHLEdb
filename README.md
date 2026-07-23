@@ -45,11 +45,13 @@ What tapHLE changed from upstream
   fields — app `bundle_identifier`/developer, version `bundle_version`/min-OS,
   and report `source_type` (human/agent/telemetry), `taphle_version`, and
   `frontier`.
-* An `/api/report` endpoint (token-authenticated) so tapHLE telemetry and coding
-  agents can submit reports without the interactive GitHub sign-in. Submissions
-  land unapproved for moderator review. See `API.md`. The code is confined to
-  `include/api.php` and `templates/api_report.phpt` plus one route in
-  `htdocs/index.php`, to keep the diff against upstream small.
+* A small JSON API so tapHLE telemetry and coding agents can work with the
+  database without the interactive GitHub sign-in: `POST /api/report` submits a
+  result (token-authenticated, always landing unapproved for moderator review),
+  and `GET /api/apps` reads the public list so an agent can choose what to work
+  on. See `API.md`. The code is confined to `include/api.php` and the two
+  `templates/api_*.phpt` files plus two routes in `htdocs/index.php`, to keep
+  the diff against upstream small.
 * `printExternalUsername()` in `include/util.php` only links to GitHub for a
   `github:` identity. API identities such as `telemetry:taphle` have no profile
   page, so linking them would point at a GitHub account that does not exist.
@@ -80,7 +82,7 @@ Source layout
 
 * [`schema.sql`](schema.sql): SQL schema (apps, versions, reports, screenshots, users)
 * [`config.example.php`](config.example.php): configuration example/documentation
-* [`API.md`](API.md): the `/api/report` programmatic submission endpoint
+* [`API.md`](API.md): the programmatic API — `GET /api/apps`, `POST /api/report`
 * [`privacy.example.html`](privacy.example.html): example privacy policy
 * [`nginx-config-example.conf`](nginx-config-example.conf): example nginx config
 * [`htdocs/index.php`](htdocs/index.php): sole entry point and router

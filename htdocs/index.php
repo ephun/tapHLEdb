@@ -97,6 +97,9 @@ if ($path === '/') {
 } else if ($path === '/api/report/') {
     // tapHLE addition: token-authenticated JSON report submission (API.md).
     require '../templates/api_report.phpt';
+} else if ($path === '/api/apps/') {
+    // tapHLE addition: public JSON app list, no credential needed (API.md).
+    require '../templates/api_apps.phpt';
 } else {
     show404();
 }

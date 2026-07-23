@@ -144,6 +144,55 @@ function apiFindVersionIdByName(int $appId, string $name): ?int {
     return (int)$rows[0]['version_id'];
 }
 
+// The public app list, for GET /api/apps: one row per approved app with its best
+// approved rating, or NULL when it has no approved report yet.
+//
+// This is the read half of the agent workflow. It answers "which apps are worst
+// off" and "which apps exist at all", so an agent can pick work without being
+// told what to work on. It deliberately exposes only what the public web page
+// already shows: approved rows only, no reports, no submitter identities, and no
+// frontier — where an app stops is the app note's job, not the database's.
+function apiListApps(): array {
+    $rows = query('
+        SELECT
+            apps.app_id AS app_id,
+            apps.name AS name,
+            apps.extra AS extra,
+            MAX(reports.rating) AS best_rating
+        FROM
+            apps
+        LEFT JOIN
+                versions
+            ON
+                versions.app_id = apps.app_id AND versions.approved IS NOT NULL
+        LEFT JOIN
+                reports
+            ON
+                reports.version_id = versions.version_id AND
+                reports.approved IS NOT NULL
+        WHERE
+            apps.approved IS NOT NULL
+        GROUP BY
+            apps.app_id
+        ORDER BY
+            apps.name ASC
+        ;
+    ');
+
+    $apps = [];
+    foreach ($rows as $row) {
+        $extra = json_decode((string)$row['extra'], TRUE);
+        $apps[] = [
+            'app_id' => (int)$row['app_id'],
+            'name' => (string)$row['name'],
+            'rating' => $row['best_rating'] === NULL ? NULL : (int)$row['best_rating'],
+            'extra' => \is_array($extra) ? $extra : [],
+            'url' => SITE_BASE_PATH . '/apps/' . (int)$row['app_id'],
+        ];
+    }
+    return $apps;
+}
+
 // Abuse guard. The web form's one-pending-item rule is per user and would stall
 // a shared bot account after its first submission, so the API instead caps how
 // many unapproved reports a single token may have waiting for moderation.

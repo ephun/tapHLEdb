@@ -1,24 +1,66 @@
-tapHLEdb submission API
-=======================
+tapHLEdb API
+============
+
+Two endpoints: `GET /api/apps` reads the public list, `POST /api/report` submits
+a result. Reading needs no credential; submitting needs a token. Both are tapHLE
+additions and are not present upstream in
+[app-compatibility-db](https://github.com/hikari-no-yume/app-compatibility-db).
+
+Both move with the mount point. When `SITE_BASE_PATH` is set in `config.php` the
+endpoints sit under it; the tapHLE deployment uses `/compatibility`, so the real
+URLs are:
+
+```
+GET  https://taphle.ephun.net/compatibility/api/apps
+POST https://taphle.ephun.net/compatibility/api/report
+```
+
+Paths below are written app-relative; prepend `SITE_BASE_PATH` to each.
+
+`GET /api/apps`
+---------------
+
+The approved app list as JSON, for agents choosing what to work on. No
+authentication — it returns strictly what the public web page already shows.
+
+```json
+{
+  "apps": [
+    {
+      "app_id": 3,
+      "name": "Baby Monkey (going backwards on a pig)",
+      "rating": 2,
+      "extra": {"bundle_identifier": "com.kihon.babymonkey", "release_year": "2011"},
+      "url": "/compatibility/apps/3"
+    }
+  ],
+  "count": 1
+}
+```
+
+`rating` is the best **approved** rating across the app's approved versions, or
+`null` when it has no approved report yet. Unapproved apps, versions and reports
+are never returned, nor are individual reports or submitter identities.
+
+Two questions this is meant to answer:
+
+* **Which apps are worst off?** Sort by `rating`; `1` and `null` need the most
+  help.
+* **Which apps are unclaimed?** An app here with no `compat/<slug>` branch in
+  the tapHLE repository is work nobody has started.
+
+It deliberately does not carry the frontier — where an app currently stops lives
+in `dev-docs/app-notes/<app>.md`, which is version-controlled alongside the code
+that moves it. Duplicating it here would create two copies that drift.
+
+`POST /api/report`
+------------------
 
 `POST /api/report` submits one compatibility report without the interactive
 GitHub sign-in, so that tapHLE telemetry and coding agents can report results
 programmatically. It reuses the same model and validation as the web form, and
 **every submission lands unapproved, pending moderator review** — the API is a
 convenience, not a way to bypass moderation.
-
-This endpoint is a tapHLE addition and is not present upstream in
-[app-compatibility-db](https://github.com/hikari-no-yume/app-compatibility-db).
-
-When the app is mounted at a subpath (`SITE_BASE_PATH` in `config.php`), the
-endpoint moves with it. The tapHLE deployment sets `SITE_BASE_PATH` to
-`/compatibility`, so its real endpoint is:
-
-```
-POST https://taphle.ephun.net/compatibility/api/report
-```
-
-Paths below are written app-relative; prepend `SITE_BASE_PATH` to each.
 
 Authentication
 --------------
