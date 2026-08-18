@@ -5,8 +5,10 @@
 //
 // This is a tapHLE addition. It deliberately reuses the same model functions as
 // the web form (createApp/createVersion/createReport), so submissions are
-// validated identically and land unapproved for moderator review. It never
-// touches the session: authentication is by bearer token only.
+// validated identically and land unapproved for moderator review — unless the
+// token's identity is listed in API_AUTO_APPROVE_IDENTITIES, which the operator
+// uses for their own agents. It never touches the session: authentication is by
+// bearer token only.
 
 namespace hikari_no_yume\touchHLE\app_compatibility_db;
 
@@ -22,6 +24,7 @@ if ($externalIdentity === NULL) {
     header('WWW-Authenticate: Bearer');
     apiError(401, 'unauthorized', 'Provide a valid API token.');
 }
+$autoApprove = apiIdentityAutoApproves($externalIdentity);
 
 $rawBody = \file_get_contents('php://input');
 if ($rawBody === FALSE) {
@@ -165,6 +168,29 @@ try {
         throw new ApiSubmissionError('report was rejected (check rating, extra fields and screenshot)');
     }
 
+    // An identity the operator has marked as trusted publishes on arrival.
+    //
+    // The report alone is not enough: /api/apps only lists an app whose app row
+    // *and* version row are approved as well, so approving just the report
+    // would leave the result invisible and look like the feature was broken.
+    // Anything this submission created is therefore approved with it. An app or
+    // version that already existed is left alone — it is not this submission's
+    // to publish, and approveApp()/approveVersion() ignore an already-approved
+    // row anyway.
+    //
+    // This is inside the transaction on purpose: a failure here rolls the whole
+    // submission back rather than leaving a published report under an
+    // unapproved app.
+    if ($autoApprove) {
+        if ($appCreated) {
+            approveApp($appId, $userId);
+        }
+        if ($versionCreated) {
+            approveVersion($versionId, $userId);
+        }
+        approveReport($reportId, $userId);
+    }
+
     $success = TRUE;
 } catch (ApiSubmissionError $e) {
     // Only the caller's own mistakes: every throw above builds this type, and
@@ -202,7 +228,7 @@ if (!$success) {
 }
 
 apiRespond(201, [
-    'status' => 'pending_moderation',
+    'status' => $autoApprove ? 'approved' : 'pending_moderation',
     'app_id' => $appId,
     'app_created' => $appCreated,
     'version_id' => $versionId,
