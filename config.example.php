@@ -172,30 +172,11 @@ const GITHUB_CLIENT_SECRET = "REPLACE_WITH_GITHUB_CLIENT_SECRET";
 // (e.g. `openssl rand -hex 32`), and never commit real values: this file is the
 // example, and the real config.php is git-ignored.
 //
-// API submissions are UNAPPROVED until a moderator accepts them, exactly like
-// web-form submissions, unless the identity is listed in
-// API_AUTO_APPROVE_IDENTITIES below.
+// API submissions are always UNAPPROVED until a moderator accepts them, exactly
+// like web-form submissions.
 const API_TOKENS = [
     // 'REPLACE_WITH_A_LONG_RANDOM_TOKEN' => 'telemetry:taphle',
     // 'REPLACE_WITH_ANOTHER_RANDOM_TOKEN' => 'agent:claude-code',
-];
-
-// Identities from API_TOKENS whose submissions are approved on arrival instead
-// of waiting for moderation. Everyone else is unaffected: this is per identity,
-// not a switch that opens the database up.
-//
-// It exists so the operator's own agents can publish a result without a round
-// trip through a queue only the operator can drain. Understand what it costs:
-// a token listed here is a *publish* credential rather than a *submit* one, so
-// leaking it means false ratings appearing publicly with nobody reading them
-// first. Give it to one identity you control, keep it off anything shared or
-// running in CI, and revoke it by deleting the line.
-//
-// Auto-approved rows are recorded as approved by the submitting user, so they
-// still appear in the moderation views and can be unapproved or deleted
-// afterwards.
-const API_AUTO_APPROVE_IDENTITIES = [
-    // 'agent:claude-code',
 ];
 
 // How many unapproved reports one API token may have awaiting moderation before

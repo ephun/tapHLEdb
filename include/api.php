@@ -77,22 +77,6 @@ function apiAuthenticate(string $token): ?string {
     return $matched;
 }
 
-// Whether this identity's submissions are approved on arrival. Defaults to NO
-// for everyone, including when the constant is absent: a config.php predating
-// this addition must not silently start publishing without review.
-function apiIdentityAutoApproves(string $externalIdentity): bool {
-    if (!\defined('API_AUTO_APPROVE_IDENTITIES') ||
-        !\is_array(API_AUTO_APPROVE_IDENTITIES)) {
-        return FALSE;
-    }
-    foreach (API_AUTO_APPROVE_IDENTITIES as $configuredIdentity) {
-        if ((string)$configuredIdentity === $externalIdentity) {
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
-
 // validateExtraFields() only rejects a *present* required field that is empty;
 // it cannot see a field that was omitted entirely. The web form enforces
 // presence with HTML "required", so the API must do the same check itself.

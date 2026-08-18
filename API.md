@@ -59,13 +59,8 @@ that moves it. Duplicating it here would create two copies that drift.
 `POST /api/report` submits one compatibility report without the interactive
 GitHub sign-in, so that tapHLE telemetry and coding agents can report results
 programmatically. It reuses the same model and validation as the web form, and
-**a submission lands unapproved, pending moderator review** — the API is a
+**every submission lands unapproved, pending moderator review** — the API is a
 convenience, not a way to bypass moderation.
-
-The one exception is deliberate and belongs to the operator: an identity listed
-in `API_AUTO_APPROVE_IDENTITIES` is approved on arrival, so the operator's own
-agents can publish without queueing work only the operator can clear. It is per
-identity, not a global setting, and it is off unless configured.
 
 Authentication
 --------------
@@ -178,8 +173,6 @@ Response
 }
 ```
 
-`status` is `"approved"` rather than `"pending_moderation"` when the token's identity auto-approves, which is how a client can tell whether the result is already public.
-
 Errors are JSON with an `error` code and usually a `detail`:
 
 | Status | `error` | Meaning |
@@ -218,19 +211,8 @@ curl -sS -X POST https://taphle.ephun.net/compatibility/api/report \
 Operational notes
 -----------------
 
-* An ordinary token's submissions are unapproved, so leaking one cannot publish
-  anything — but it can create moderation noise. Revoke by deleting the entry
-  from `API_TOKENS`.
-* **A token whose identity auto-approves is a different kind of secret.** It
-  publishes directly, so leaking one puts false ratings in front of readers with
-  nobody reviewing them first. Keep it to a single identity the operator
-  controls, off shared machines and out of CI. Auto-approved rows are recorded
-  as approved by the submitting user, so they remain visible in the moderation
-  views and can be unapproved or deleted afterwards.
-* Auto-approval covers the app and version rows the same submission creates, not
-  ones that already existed. It has to: `/api/apps` lists an app only when its
-  app row and version row are approved as well, so approving the report alone
-  would leave the result invisible.
+* Submissions are unapproved, so a leaked token cannot publish anything — but it
+  can create moderation noise. Revoke by deleting the entry from `API_TOKENS`.
 * `API_MAX_PENDING_REPORTS` bounds that noise per token. Because the cap is
   checked before anything is written, it also bounds how many unapproved apps
   and versions a token can create: each accepted request adds at most one of
