@@ -54,27 +54,87 @@ function apiReadToken(): string {
     return $_SERVER['HTTP_X_API_KEY'] ?? '';
 }
 
-// Resolve a token to the external identity it acts as, e.g. "telemetry:taphle".
-// Uses a constant-time comparison and always checks every configured token so
-// the time taken does not reveal which one matched. Returns NULL if no match.
-function apiAuthenticate(string $token): ?string {
-    // config.php declares no namespace, so its constants are global. A config.php
-    // predating this fork's additions has no API_TOKENS at all; treat that as
-    // "the API is not configured" (401) rather than letting an undefined
-    // constant fatal into a blank 500.
+// Resolve a token to the identity and trust attached to that exact credential.
+// Legacy token => identity string entries remain accepted and are never trusted.
+function apiAuthenticateCredential(string $token): ?array {
     if (!\defined('API_TOKENS') || !\is_array(API_TOKENS)) {
         return NULL;
     }
     $matched = NULL;
-    foreach (API_TOKENS as $configuredToken => $externalIdentity) {
-        if (\hash_equals((string)$configuredToken, $token) && $matched === NULL) {
-            $matched = (string)$externalIdentity;
+    foreach (API_TOKENS as $configuredToken => $configuration) {
+        $matches = \hash_equals((string)$configuredToken, $token);
+        if (!$matches || $matched !== NULL) {
+            continue;
+        }
+        if (\is_string($configuration)) {
+            $matched = ['identity' => $configuration, 'trusted' => FALSE];
+        } else if (\is_array($configuration) &&
+            \is_string($configuration['identity'] ?? NULL) &&
+            $configuration['identity'] !== '') {
+            $matched = [
+                'identity' => $configuration['identity'],
+                'trusted' => ($configuration['trusted'] ?? FALSE) === TRUE,
+            ];
         }
     }
-    if ($token === '') {
-        return NULL;
+    return $token === '' ? NULL : $matched;
+}
+
+// Backward-compatible identity-only helper for callers that do not need trust.
+function apiAuthenticate(string $token): ?string {
+    $credential = apiAuthenticateCredential($token);
+    return $credential === NULL ? NULL : $credential['identity'];
+}
+
+function apiValidateReportSemantics(array $extra, int $rating): void {
+    $sourceType = $extra['source_type'] ?? NULL;
+    if ($sourceType !== 'agent' && $sourceType !== 'telemetry') {
+        throw new ApiSubmissionError('token API source_type must be agent or telemetry');
     }
-    return $matched;
+    if (!validateReportRatingSource($rating, $extra)) {
+        throw new ApiSubmissionError('agents and telemetry are capped at 3 stars');
+    }
+    if (!validateVerificationFields($extra)) {
+        throw new ApiSubmissionError(
+            'release_verification requires release_version X.Y.Z; compatibility must omit it'
+        );
+    }
+}
+
+function apiApplyTrustedApproval(
+    bool $trusted,
+    int $userId,
+    int $appId,
+    bool $appCreated,
+    int $versionId,
+    bool $versionCreated,
+    int $reportId
+): void {
+    if (!$trusted) {
+        return;
+    }
+    $app = getApp($appId);
+    if ($app === NULL) {
+        throw new ApiSubmissionError('app disappeared before approval');
+    }
+    if ($app['approved'] === NULL) {
+        if (!$appCreated && (int)$app['created_by'] !== $userId) {
+            throw new ApiSubmissionError('trusted credential cannot approve another submitter app');
+        }
+        approveApp($appId, $userId);
+    }
+
+    $version = getVersion($versionId);
+    if ($version === NULL) {
+        throw new ApiSubmissionError('version disappeared before approval');
+    }
+    if ($version['approved'] === NULL) {
+        if (!$versionCreated && (int)$version['created_by'] !== $userId) {
+            throw new ApiSubmissionError('trusted credential cannot approve another submitter version');
+        }
+        approveVersion($versionId, $userId);
+    }
+    approveReport($reportId, $userId);
 }
 
 // validateExtraFields() only rejects a *present* required field that is empty;
@@ -154,55 +214,122 @@ function apiFindVersionIdByName(int $appId, string $name): ?int {
 // frontier — where an app stops is the app note's job, not the database's.
 function apiListApps(): array {
     $rows = query('
-        SELECT
-            apps.app_id AS app_id,
-            apps.name AS name,
-            apps.extra AS extra,
-            MAX(reports.rating) AS best_rating
-        FROM
-            apps
-        LEFT JOIN
-                versions
-            ON
-                versions.app_id = apps.app_id AND versions.approved IS NOT NULL
-        LEFT JOIN
-                reports
-            ON
-                reports.version_id = versions.version_id AND
-                reports.approved IS NOT NULL
-        WHERE
-            apps.approved IS NOT NULL
-        GROUP BY
-            apps.app_id
-        ORDER BY
-            apps.name ASC
-        ;
+        SELECT apps.app_id AS app_id, apps.name AS name, apps.extra AS extra
+        FROM apps
+        WHERE apps.approved IS NOT NULL
+        ORDER BY apps.name ASC;
     ');
-
+    $platformRows = query('
+        SELECT versions.app_id AS app_id, reports.rating AS rating, reports.extra AS extra
+        FROM reports
+        JOIN versions ON versions.version_id = reports.version_id
+        JOIN apps ON apps.app_id = versions.app_id
+        WHERE reports.approved IS NOT NULL AND versions.approved IS NOT NULL AND apps.approved IS NOT NULL;
+    ');
+    $ratingsByApp = [];
+    foreach ($platformRows as $row) {
+        $extra = json_decode((string)$row['extra'], TRUE);
+        if (\is_array($extra) &&
+            ($extra['verification_type'] ?? 'compatibility') === 'release_verification') {
+            continue;
+        }
+        $platform = \is_array($extra) && \is_string($extra['platform'] ?? NULL)
+            ? $extra['platform'] : 'Windows';
+        $appId = (int)$row['app_id'];
+        $rating = (int)$row['rating'];
+        $previous = $ratingsByApp[$appId][$platform] ?? NULL;
+        if ($previous === NULL || $rating > $previous) {
+            $ratingsByApp[$appId][$platform] = $rating;
+        }
+    }
     $apps = [];
     foreach ($rows as $row) {
         $extra = json_decode((string)$row['extra'], TRUE);
+        $appId = (int)$row['app_id'];
+        $platformRatings = $ratingsByApp[$appId] ?? [];
+        \ksort($platformRatings);
         $apps[] = [
-            'app_id' => (int)$row['app_id'],
+            'app_id' => $appId,
             'name' => (string)$row['name'],
-            'rating' => $row['best_rating'] === NULL ? NULL : (int)$row['best_rating'],
+            'rating' => $platformRatings === [] ? NULL : max($platformRatings),
+            'ratings_by_platform' => $platformRatings,
             'extra' => \is_array($extra) ? $extra : [],
-            'url' => SITE_BASE_PATH . '/apps/' . (int)$row['app_id'],
+            'url' => SITE_BASE_PATH . '/apps/' . $appId,
         ];
     }
     return $apps;
 }
 
-// Abuse guard. The web form's one-pending-item rule is per user and would stall
-// a shared bot account after its first submission, so the API instead caps how
-// many unapproved reports a single token may have waiting for moderation.
+function apiListReleaseVerifications(string $releaseVersion, string $commit): array {
+    if (\preg_match('/\A\d+\.\d+\.\d+\z/D', $releaseVersion) !== 1 ||
+        \preg_match('/\A[0-9a-f]{40}\z/D', $commit) !== 1) {
+        throw new ApiSubmissionError('release and commit must be exact');
+    }
+    $rows = query('
+        SELECT reports.report_id, reports.created, reports.rating, reports.extra AS report_extra,
+               versions.version_id, versions.name AS version_name, versions.extra AS version_extra,
+               apps.app_id, apps.name AS app_name, apps.extra AS app_extra,
+               users.external_user_id AS submitter_identity,
+               EXISTS(SELECT 1 FROM report_screenshots WHERE report_screenshots.report_id = reports.report_id) AS has_screenshot
+        FROM reports
+        JOIN versions ON versions.version_id = reports.version_id
+        JOIN apps ON apps.app_id = versions.app_id
+        JOIN users ON users.user_id = reports.created_by
+        WHERE reports.approved IS NOT NULL AND versions.approved IS NOT NULL AND apps.approved IS NOT NULL
+          AND json_extract(reports.extra, \'$.verification_type\') = \'release_verification\'
+          AND json_extract(reports.extra, \'$.release_version\') = :release_version
+          AND json_extract(reports.extra, \'$.taphle_commit\') = :commit
+        ORDER BY apps.name, versions.name, reports.report_id;
+    ', [':release_version' => $releaseVersion, ':commit' => $commit]);
+    $result = [];
+    foreach ($rows as $row) {
+        $report = json_decode((string)$row['report_extra'], TRUE);
+        if (!\is_array($report) ||
+            ($report['verification_type'] ?? NULL) !== 'release_verification' ||
+            ($report['release_version'] ?? NULL) !== $releaseVersion ||
+            ($report['taphle_commit'] ?? NULL) !== $commit) {
+            continue;
+        }
+        $app = json_decode((string)$row['app_extra'], TRUE);
+        $version = json_decode((string)$row['version_extra'], TRUE);
+        $result[] = [
+            'report_id' => (int)$row['report_id'],
+            'created' => (string)$row['created'],
+            'rating' => (int)$row['rating'],
+            'app_id' => (int)$row['app_id'],
+            'app_name' => (string)$row['app_name'],
+            'bundle_identifier' => \is_array($app) ? ($app['bundle_identifier'] ?? NULL) : NULL,
+            'version_id' => (int)$row['version_id'],
+            'version_name' => (string)$row['version_name'],
+            'bundle_version' => \is_array($version) ? ($version['bundle_version'] ?? NULL) : NULL,
+            'submitter_identity' => (string)$row['submitter_identity'],
+            'source_type' => $report['source_type'] ?? NULL,
+            'source_name' => $report['source_name'] ?? NULL,
+            'platform' => $report['platform'] ?? NULL,
+            'architecture' => $report['architecture'] ?? NULL,
+            'os_version' => $report['os_version'] ?? NULL,
+            'taphle_commit' => $report['taphle_commit'],
+            'artifact_sha256' => $report['artifact_sha256'] ?? NULL,
+            'app_artifact_sha256' => $report['app_artifact_sha256'] ?? NULL,
+            'build_provenance' => $report['build_provenance'] ?? NULL,
+            'build_profile' => $report['build_profile'] ?? NULL,
+            'frontier' => $report['frontier'] ?? NULL,
+            'has_screenshot' => (bool)$row['has_screenshot'],
+        ];
+    }
+    return $result;
+}
+
+
+function apiPendingLimitExceeded(bool $trusted, int $userId, mixed $maxPending): bool {
+    return !$trusted && is_int($maxPending) && $maxPending > 0 &&
+        apiPendingReportCount($userId) >= $maxPending;
+}
+
 function apiPendingReportCount(int $userId): int {
     $rows = query(
         'SELECT COUNT(*) AS count FROM reports WHERE created_by = :user_id AND approved IS NULL;',
         [':user_id' => $userId]
     );
-    if ($rows === []) {
-        return 0;
-    }
-    return (int)$rows[0]['count'];
+    return $rows === [] ? 0 : (int)$rows[0]['count'];
 }

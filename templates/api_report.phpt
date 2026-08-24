@@ -5,7 +5,8 @@
 //
 // This is a tapHLE addition. It deliberately reuses the same model functions as
 // the web form (createApp/createVersion/createReport), so submissions are
-// validated identically and land unapproved for moderator review. It never
+// validated identically. Ordinary credentials land pending moderation; an
+// explicitly trusted credential approves its own submission atomically. It never
 // touches the session: authentication is by bearer token only.
 
 namespace hikari_no_yume\touchHLE\app_compatibility_db;
@@ -17,11 +18,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     apiError(405, 'method_not_allowed', 'Use POST.');
 }
 
-$externalIdentity = apiAuthenticate(apiReadToken());
-if ($externalIdentity === NULL) {
+$credential = apiAuthenticateCredential(apiReadToken());
+if ($credential === NULL) {
     header('WWW-Authenticate: Bearer');
     apiError(401, 'unauthorized', 'Provide a valid API token.');
 }
+$externalIdentity = $credential['identity'];
+$trustedCredential = $credential['trusted'];
 
 $rawBody = \file_get_contents('php://input');
 if ($rawBody === FALSE) {
@@ -56,7 +59,7 @@ try {
 
     // The web form's one-pending-item rule is per user and would stall a shared
     // bot account immediately, so cap pending reports per token instead.
-    if (\is_int($maxPending) && $maxPending > 0 && apiPendingReportCount($userId) >= $maxPending) {
+    if (apiPendingLimitExceeded($trustedCredential, $userId, $maxPending)) {
         throw new ApiSubmissionError('too_many_pending');
     }
 
@@ -135,7 +138,7 @@ try {
         }
     }
 
-    // --- report: always new, always unapproved.
+    // --- report: always new; trust determines approval after validation.
     $report = $body['report'] ?? NULL;
     if (!\is_array($report)) {
         throw new ApiSubmissionError('report object is required');
@@ -150,6 +153,7 @@ try {
     if (!\is_int($report['rating'] ?? NULL)) {
         throw new ApiSubmissionError('report.rating must be an integer from 1 to 5');
     }
+    apiValidateReportSemantics($reportExtra, $report['rating']);
     // createReport() treats a screenshot of '' as "none", but an absent key
     // arrives as NULL and is rejected as a malformed data URL. The web form
     // always posts an empty string from a hidden input, so it never hits that;
@@ -164,6 +168,16 @@ try {
     if ($reportId === NULL) {
         throw new ApiSubmissionError('report was rejected (check rating, extra fields and screenshot)');
     }
+
+    apiApplyTrustedApproval(
+        $trustedCredential,
+        $userId,
+        $appId,
+        $appCreated,
+        $versionId,
+        $versionCreated,
+        $reportId
+    );
 
     $success = TRUE;
 } catch (ApiSubmissionError $e) {
@@ -202,7 +216,7 @@ if (!$success) {
 }
 
 apiRespond(201, [
-    'status' => 'pending_moderation',
+    'status' => $trustedCredential ? 'approved' : 'pending_moderation',
     'app_id' => $appId,
     'app_created' => $appCreated,
     'version_id' => $versionId,
