@@ -10,9 +10,9 @@ It tracks three kinds of items in a hierarchy:
 
 * **Apps** — an application tested in tapHLE (identity from its `Info.plist`).
 * **Versions** — a specific version of an app.
-* **Reports** — a single tester's (or agent's, or telemetry run's) result for a
-  version: a 1–5 star rating plus the Windows host, tapHLE version, and the
-  current frontier.
+* **Reports** — a compatibility boundary or release reconfirmation for one exact
+  app artifact, host, tapHLE commit and tested product hash, with a 1–5 star
+  rating and frontier.
 
 Ratings and every extra field are defined in `config.php` (see
 `config.example.php`). Ratings follow tapHLE's scale; a coding agent may confirm
@@ -41,17 +41,13 @@ or HyperHLE results are testing leads only and are never imported as ratings.
 What tapHLE changed from upstream
 ---------------------------------
 
-* `config.example.php`: tapHLE branding, tapHLE's 1–5 rating scale, and the
-  fields — app `bundle_identifier`/developer, version `bundle_version`/min-OS,
-  and report `source_type` (human/agent/telemetry), `taphle_version`, and
-  `frontier`.
-* A small JSON API so tapHLE telemetry and coding agents can work with the
-  database without the interactive GitHub sign-in: `POST /api/report` submits a
-  result (token-authenticated, always landing unapproved for moderator review),
-  and `GET /api/apps` reads the public list so an agent can choose what to work
-  on. See `API.md`. The code is confined to `include/api.php` and the two
-  `templates/api_*.phpt` files plus two routes in `htdocs/index.php`, to keep
-  the diff against upstream small.
+* `config.example.php`: tapHLE branding, the 1–5 scale, platform/product/app
+  provenance fields, verification type, optional screenshot policy, and exact
+  per-credential trust for Ethan-controlled agents.
+* A JSON API for platform-aware ratings, token-authenticated submission, and
+  approved release-verification read-back. Ordinary credentials land pending;
+  an explicitly trusted credential approves only its own transaction. See
+  `API.md`.
 * `printExternalUsername()` in `include/util.php` only links to GitHub for a
   `github:` identity. API identities such as `telemetry:taphle` have no profile
   page, so linking them would point at a GitHub account that does not exist.
@@ -68,6 +64,14 @@ Requires git, PHP 7.4/8, and the SQLite 3 CLI.
    OAuth keys and any API tokens (keep them secret — `config.php` is git-ignored).
 2. Create the database: `sqlite3 app_db.sqlite3 '.read schema.sql'`
 3. Serve locally: `cd htdocs && php -S localhost:8000`
+
+Run the API/security regression test before deployment:
+
+```sh
+php tests/api_features.php
+```
+
+It uses an in-memory SQLite database and does not touch the configured site data.
 
 Deployment
 ----------
@@ -92,7 +96,7 @@ Source layout
 
 * [`schema.sql`](schema.sql): SQL schema (apps, versions, reports, screenshots, users)
 * [`config.example.php`](config.example.php): configuration example/documentation
-* [`API.md`](API.md): the programmatic API — `GET /api/apps`, `POST /api/report`
+* [`API.md`](API.md): platform-aware reads, report submission, and release-verification read-back
 * [`privacy.example.html`](privacy.example.html): example privacy policy
 * [`nginx-config-example.conf`](nginx-config-example.conf): example nginx config
 * [`htdocs/index.php`](htdocs/index.php): sole entry point and router

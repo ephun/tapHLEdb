@@ -100,6 +100,9 @@ if ($path === '/') {
 } else if ($path === '/api/apps/') {
     // tapHLE addition: public JSON app list, no credential needed (API.md).
     require '../templates/api_apps.phpt';
+} else if ($path === '/api/release-verifications/') {
+    // Approved release reconfirmations for an exact release and commit.
+    require '../templates/api_release_verifications.phpt';
 } else {
     show404();
 }

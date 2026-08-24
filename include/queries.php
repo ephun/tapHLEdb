@@ -84,7 +84,8 @@ function listApps(bool $showUnapproved): void {
                         FROM
                             reports
                         WHERE
-                            (:show_unapproved OR approved IS NOT NULL)
+                            (:show_unapproved OR approved IS NOT NULL) AND
+                            COALESCE(json_extract(reports.extra, \'$.verification_type\'), \'compatibility\') <> \'release_verification\'
                         GROUP BY
                             version_id
                     )
@@ -437,7 +438,8 @@ function listVersionsForApp(int $appId, bool $showUnapproved, bool $moderatorVie
                 FROM
                     reports
                 WHERE
-                    :show_unapproved OR approved IS NOT NULL
+                    (:show_unapproved OR approved IS NOT NULL) AND
+                    COALESCE(json_extract(reports.extra, \'$.verification_type\'), \'compatibility\') <> \'release_verification\'
                 GROUP BY
                     version_id
             )
@@ -675,7 +677,7 @@ function getReport(int $id): ?array {
 
 // Returns NULL if the report isn't found, or has no screenshot.
 // The result is a binary blob of JPEG data.
-function getReportScreenshotImage(int $id): string {
+function getReportScreenshotImage(int $id): ?string {
     $rows = query('
         SELECT
             image
@@ -913,7 +915,9 @@ function createReport(array $report): ?int {
     if (!is_array($extra)) {
         return NULL;
     }
-    if (!validateExtraFields(REPORT_EXTRA_FIELDS, $extra)) {
+    if (!validateExtraFields(REPORT_EXTRA_FIELDS, $extra) ||
+        !validateVerificationFields($extra) ||
+        !validateReportRatingSource($rating, $extra)) {
         return NULL;
     }
     $extra = json_encode($extra);

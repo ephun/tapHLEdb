@@ -193,6 +193,16 @@ function validateInputLength(string $input): bool {
 // Validate extra field input (e.g. from $_POST) against extra fields lists.
 // The input should _not_ have been converted with convertExtraFieldInfo().
 function validateExtraFields(array /*<array>*/ $extraFields, array $extraInput): bool {
+    foreach ($extraFields as $fieldKey => $fieldInfo) {
+        if (($fieldInfo['required'] ?? FALSE) !== TRUE) {
+            continue;
+        }
+        if (!isset($extraInput[$fieldKey]) ||
+            !is_string($extraInput[$fieldKey]) ||
+            $extraInput[$fieldKey] === '') {
+            return FALSE;
+        }
+    }
     foreach ($extraInput as $fieldKey => $fieldValue) {
         $fieldInfo = $extraFields[$fieldKey] ?? NULL;
         if ($fieldInfo === NULL) {
@@ -207,8 +217,42 @@ function validateExtraFields(array /*<array>*/ $extraFields, array $extraInput):
         if (isset($fieldInfo['options']) && !isset($fieldInfo['options'][$fieldValue])) {
             return FALSE;
         }
+        if (isset($fieldInfo['pattern'])) {
+            $pattern = $fieldInfo['pattern'];
+            if (!is_string($pattern) || preg_match($pattern, $fieldValue) !== 1) {
+                return FALSE;
+            }
+        }
     }
     return TRUE;
+}
+
+function validateReportRatingSource(int $rating, array $extra): bool {
+    $sourceType = $extra['source_type'] ?? NULL;
+    return !(($sourceType === 'agent' || $sourceType === 'telemetry') && $rating > 3);
+}
+
+function validateVerificationFields(array $extra): bool {
+    $verificationType = $extra['verification_type'] ?? NULL;
+    $releaseVersion = $extra['release_version'] ?? NULL;
+    if ($verificationType === 'release_verification') {
+        return is_string($releaseVersion) &&
+            preg_match('/\A\d+\.\d+\.\d+\z/D', $releaseVersion) === 1;
+    }
+    if ($verificationType === 'compatibility') {
+        return $releaseVersion === NULL || $releaseVersion === '';
+    }
+    return FALSE;
+}
+
+function canViewReportScreenshot(?array $session, array $report): bool {
+    return $report['approved'] !== NULL || $session !== NULL;
+}
+
+function reportScreenshotCacheControl(array $report): string {
+    return $report['approved'] === NULL
+        ? 'private, no-store'
+        : 'public, max-age=31536000';
 }
 
 function printExternalUsername(string $externalUsername): void {

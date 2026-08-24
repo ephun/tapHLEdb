@@ -1,161 +1,137 @@
 tapHLEdb API
 ============
 
-Two endpoints: `GET /api/apps` reads the public list, `POST /api/report` submits
-a result. Reading needs no credential; submitting needs a token. Both are tapHLE
-additions and are not present upstream in
-[app-compatibility-db](https://github.com/hikari-no-yume/app-compatibility-db).
-
-Both move with the mount point. When `SITE_BASE_PATH` is set in `config.php` the
-endpoints sit under it; the tapHLE deployment uses `/compatibility`, so the real
-URLs are:
+The tapHLE deployment is mounted at `/compatibility`:
 
 ```
 GET  https://taphle.ephun.net/compatibility/api/apps
 POST https://taphle.ephun.net/compatibility/api/report
+GET  https://taphle.ephun.net/compatibility/api/release-verifications?release=0.2.4&commit=<40-hex-commit>
 ```
 
-Paths below are written app-relative; prepend `SITE_BASE_PATH` to each.
+Reads need no credential. Submission uses one configured bearer credential.
 
 `GET /api/apps`
 ---------------
 
-The approved app list as JSON, for agents choosing what to work on. No
-authentication — it returns strictly what the public web page already shows.
+Returns approved apps and approved compatibility ratings only. Release
+reconfirmations never affect either summary. `rating` remains the best
+compatibility rating across all hosts for backward compatibility.
+`ratings_by_platform` is the host-qualified view new clients should use. Reports created before platform was
+stored are classified as Windows because production policy allowed Windows
+reports only at that time.
 
 ```json
 {
-  "apps": [
-    {
-      "app_id": 3,
-      "name": "Baby Monkey (going backwards on a pig)",
-      "rating": 2,
-      "extra": {"bundle_identifier": "com.kihon.babymonkey", "release_year": "2011"},
-      "url": "/compatibility/apps/3"
-    }
-  ],
+  "apps": [{
+    "app_id": 4,
+    "name": "Example",
+    "rating": 3,
+    "ratings_by_platform": {"Linux": 2, "Windows": 3},
+    "extra": {"bundle_identifier": "com.example.app"},
+    "url": "/compatibility/apps/4"
+  }],
   "count": 1
 }
 ```
 
-`rating` is the best **approved** rating across the app's approved versions, or
-`null` when it has no approved report yet. Unapproved apps, versions and reports
-are never returned, nor are individual reports or submitter identities.
-
-Two questions this is meant to answer:
-
-* **Which apps are worst off?** Sort by `rating`; `1` and `null` need the most
-  help.
-* **Which apps are unclaimed?** An app here with no `compat/<slug>` branch in
-  the tapHLE repository is work nobody has started.
-
-It deliberately does not carry the frontier — where an app currently stops lives
-in `dev-docs/app-notes/<app>.md`, which is version-controlled alongside the code
-that moves it. Duplicating it here would create two copies that drift.
-
 `POST /api/report`
 ------------------
 
-`POST /api/report` submits one compatibility report without the interactive
-GitHub sign-in, so that tapHLE telemetry and coding agents can report results
-programmatically. It reuses the same model and validation as the web form, and
-**every submission lands unapproved, pending moderator review** — the API is a
-convenience, not a way to bypass moderation.
-
-Authentication
---------------
-
-Send a token from `API_TOKENS` in `config.php`:
+Send `Content-Type: application/json` and either:
 
 ```
-Authorization: Bearer <token>
+Authorization: Bearer <credential>
 ```
 
-`X-Api-Key: <token>` is accepted as a fallback, because nginx/PHP-FPM does not
-always forward the `Authorization` header. If you use the `Authorization` form
-behind nginx, make sure the header is passed through, e.g.:
+or `X-Api-Key: <credential>` when a proxy does not forward Authorization.
 
-```
-fastcgi_param HTTP_AUTHORIZATION $http_authorization;
-```
+Credentials are configured independently. A legacy token-to-identity string is
+accepted and always lands pending moderation. A structured credential may carry
+`trusted => TRUE`; only an Ethan-controlled credential may do that. Trust applies
+to that exact secret, not globally. A trusted credential atomically approves the
+report and any app/version rows the same request created. It does not raise the
+agent rating cap.
 
-Each token maps to an external identity in `service:name` form (for example
-`telemetry:taphle` or `agent:claude-code`). Use one token per source so a single
-source can be revoked without disturbing the others. Tokens are secrets: keep
-them out of URLs, logs, and version control.
+```php
+const API_TOKENS = [
+    'ordinary-secret' => 'agent:external-worker',
+    'operator-secret' => [
+        'identity' => 'agent:taphle-lead',
+        'trusted' => TRUE,
+    ],
+];
+```
 
 Request
 -------
 
-`Content-Type: application/json`, body up to 1 MB.
+Use `app_id` or an `app` object, and `version_id` or a `version` object. New apps
+are matched by bundle identifier; new versions are matched by name within the
+app. The whole operation is one transaction.
 
-```jsonc
+```json
 {
-  // Either "app_id" (an existing app) or "app" (create/match one).
   "app": {
-    "name": "Baby Monkey (going backwards on a pig)",
-    "extra": {
-      "bundle_identifier": "com.kihon.babymonkey",   // required (identity)
-      "developer_publisher": "Kihon",
-      "release_year": "2011"
-    }
+    "name": "Example",
+    "extra": {"bundle_identifier": "com.example.app"}
   },
-
-  // Either "version_id" (an existing version) or "version".
   "version": {
-    "name": "1.01",
+    "name": "1.0",
     "extra": {
-      "bundle_version": "1.01",                       // required
-      "short_version": "1.01",
-      "minimum_os_version": "4.2"
+      "bundle_version": "1.0",
+      "short_version": "1.0",
+      "minimum_os_version": "2.0"
     }
   },
-
   "report": {
-    "rating": 2,                                      // integer 1-5
+    "rating": 3,
     "extra": {
-      "source_type": "telemetry",                     // required: human|agent|telemetry
-      "source_name": "auto-uptime",
-      "taphle_version": "f0947bc4",                   // required
-      "cpu": "Intel Core i7-13700H",
-      "gpu": "Intel Iris Xe Graphics",
-      "frontier": "onTouchesBegan: sent to _tapHLE_NSArray"
+      "source_type": "agent",
+      "source_name": "tapHLE Lead",
+      "platform": "Windows",
+      "architecture": "x86_64",
+      "os_version": "11 24H2",
+      "taphle_commit": "0123456789abcdef0123456789abcdef01234567",
+      "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "app_artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "build_provenance": "clean checkout; rust 1.97.1; release workflow run 123",
+      "build_profile": "release",
+      "verification_type": "compatibility",
+      "frontier": "gameplay loop starts and persists"
     },
-    // Optional, same limits as the web form: JPEG data URL, <= ~200 KB.
-    // Omit it, or send "", when there is no screenshot.
     "screenshot": "data:image/jpeg;base64,..."
   }
 }
 ```
 
-Notes on the fields:
+Required report provenance:
 
-* Every value inside an `extra` object must be a **JSON string** — numbers and
-  nested objects are rejected. (`"release_year": "2011"`, not `2011`.)
-* Which `extra` keys are allowed, and which are required, is entirely defined by
-  `APP_EXTRA_FIELDS` / `VERSION_EXTRA_FIELDS` / `REPORT_EXTRA_FIELDS` in
-  `config.php`. An unknown key is rejected.
-* Fields declared with `options` (such as `source_type`) must use one of the
-  configured option keys.
-* `rating` must be a JSON integer from 1 to 5. Coding agents may report up to 3;
-  4 and 5 require human testing.
+* `source_type`: the token API accepts `agent` or `telemetry`, never `human`;
+* `source_name`;
+* `platform`: `Windows`, `Linux`, `macOS`, `Android`, or `iOS`;
+* `architecture` and `os_version`;
+* `taphle_commit`: full lowercase 40-hex commit;
+* `artifact_sha256`: tested binary/package SHA-256;
+* `app_artifact_sha256`: tested app file SHA-256;
+* `build_provenance` and `build_profile` (`debug` or `release`);
+* `verification_type`: `compatibility` or `release_verification`.
 
-Duplicate handling
-------------------
+`release_verification` additionally requires a plain `release_version` such as
+`0.2.4`. A compatibility report must omit it. Release reconfirmations remain
+separate from rating-changing history even though both use the append-only
+reports table. Agents and telemetry are capped at three stars.
 
-Telemetry submits repeatedly, so the endpoint attaches to existing rows instead
-of piling up duplicates:
+Every extra-field value is a JSON string. Unknown fields, short commits, malformed
+hashes, unsupported platforms and invalid option values are rejected.
 
-1. If `app_id` is given it is used directly.
-2. Otherwise, if an app already exists whose `APP_IDENTITY_FIELD` (by default
-   `bundle_identifier`) matches the one submitted, that app is reused.
-3. Otherwise a new, unapproved app is created.
+Screenshot
+----------
 
-Versions follow the same pattern, matched by `name` within the app. Matching
-also finds rows that are still awaiting moderation, so a burst of telemetry
-about a new app produces one app, one version, and N reports — not N of each.
-
-The report itself is always created; there is no report de-duplication.
+`screenshot` is optional. When present it is the same JPEG data URL accepted by
+the web form and is limited to roughly 150 KB after decoding. Capture the visible
+tapHLE/app window or a tight relevant crop and inspect it for sensitive material
+before submission. Omit it when no safe image proves the result.
 
 Response
 --------
@@ -173,58 +149,72 @@ Response
 }
 ```
 
-Errors are JSON with an `error` code and usually a `detail`:
+`status` is `approved` for a trusted credential and `pending_moderation` for an
+ordinary one.
 
-| Status | `error` | Meaning |
+Errors
+------
+
+| Status | Error | Meaning |
 |---|---|---|
-| 400 | `bad_json` | Body was not a JSON object |
-| 400 | `invalid_submission` | Validation failed; see `detail` |
-| 401 | `unauthorized` | Missing or unrecognised token |
-| 405 | `method_not_allowed` | Use `POST` |
+| 400 | `bad_json` | Body is not a JSON object |
+| 400 | `invalid_submission` | Validation failed; `detail` describes caller input |
+| 401 | `unauthorized` | Credential absent or unknown |
+| 405 | `method_not_allowed` | Wrong HTTP method |
 | 413 | `payload_too_large` | Body exceeded 1 MB |
-| 429 | `too_many_pending` | This token has `API_MAX_PENDING_REPORTS` reports awaiting moderation |
-| 500 | `internal_error` | The submission could not be stored (e.g. a database error) |
+| 429 | `too_many_pending` | Ordinary identity has too many pending reports |
+| 500 | `internal_error` | Storage failed; no schema detail is exposed |
 
-Nothing is written unless the whole submission succeeds: the app, version and
-report are created in one transaction that is rolled back on any error.
+Nothing is written unless the whole submission succeeds.
 
-`detail` only ever describes what the caller got wrong. A database failure is
-always a flat `500 internal_error`, never a `400` — its message could carry
-SQLSTATE codes and schema details, so it is never returned. Treat `500` as
-retryable and `400` as a payload to fix; a `400` will never become valid on a
-retry.
+`GET /api/release-verifications`
+--------------------------------
 
-Example
--------
+Requires exact `release=X.Y.Z` and full lowercase 40-hex `commit` query values.
+Returns approved `release_verification` records whose release and commit both
+match. Unapproved rows and ordinary compatibility reports are excluded.
 
-```sh
-curl -sS -X POST https://taphle.ephun.net/compatibility/api/report \
-  -H "Authorization: Bearer $TAPHLEDB_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "app":     {"name":"Ricky","extra":{"bundle_identifier":"com.nabilchatbi.Ricky"}},
-        "version": {"name":"2.1","extra":{"bundle_version":"2.1"}},
-        "report":  {"rating":3,"extra":{"source_type":"agent","source_name":"Claude Code","taphle_version":"e2d51c6c"}}
-      }'
+```json
+{
+  "release": "0.2.4",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "verifications": [{
+    "report_id": 90,
+    "rating": 3,
+    "app_id": 4,
+    "app_name": "Example",
+    "bundle_identifier": "com.example.app",
+    "version_id": 7,
+    "version_name": "1.0",
+    "bundle_version": "1.0",
+    "submitter_identity": "agent:taphle-lead",
+    "source_type": "agent",
+    "source_name": "tapHLE Lead",
+    "platform": "Linux",
+    "architecture": "x86_64",
+    "os_version": "Ubuntu 26.04",
+    "taphle_commit": "0123456789abcdef0123456789abcdef01234567",
+    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "app_artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "build_provenance": "clean checkout; release workflow run 123",
+    "build_profile": "release",
+    "frontier": "gameplay loop starts and persists",
+    "has_screenshot": false
+  }],
+  "count": 1
+}
 ```
 
-Operational notes
------------------
+The release-readiness gate compares this read-back with the frozen cohort. A
+record on one host never qualifies another host.
 
-* Submissions are unapproved, so a leaked token cannot publish anything — but it
-  can create moderation noise. Revoke by deleting the entry from `API_TOKENS`.
-* `API_MAX_PENDING_REPORTS` bounds that noise per token. Because the cap is
-  checked before anything is written, it also bounds how many unapproved apps
-  and versions a token can create: each accepted request adds at most one of
-  each, and once the cap is reached no request is accepted at all.
-* A `config.php` with no `API_TOKENS` at all (for example one written before this
-  endpoint existed) simply answers `401` — the endpoint is off until it is
-  configured.
+Operational security
+--------------------
+
+* Keep each secret out of URLs, logs and version control. Revoke it by removing
+  its `API_TOKENS` entry.
+* A trusted credential is a publish credential. Keep it on an operator-controlled
+  machine only; a leak can publish false ratings immediately.
+* `API_MAX_PENDING_REPORTS` bounds moderation noise from ordinary credentials.
+* A config with no `API_TOKENS` returns 401 and leaves submission disabled.
 * The endpoint never reads or sets a session cookie.
-* Matching an existing app by identity uses SQLite's `json_extract`, from the
-  JSON1 extension. It is compiled in by default in modern SQLite builds; if it
-  is missing, matching degrades to "no match" (a new app is created) instead of
-  failing the submission, so duplicates become a moderation problem rather than
-  lost data.
-* Deleting a bot's last remaining item removes its `users` row; the next
-  submission recreates it. This is harmless.

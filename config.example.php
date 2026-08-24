@@ -64,7 +64,7 @@ const RATINGS = [
 ];
 
 // Plain text shown when submitting a new app, report or version.
-const GENERAL_GUIDANCE = "Every rating must come from an actual tapHLE run on Windows using the exact app build. Do not link to pirated content. Coding agents may confirm up to 3 stars (2 = the app reaches a stable screen; 3 = the gameplay loop starts and persists); 4 and 5 stars require human testing.";
+const GENERAL_GUIDANCE = "Every rating must come from an actual visible tapHLE run on the named host using the exact app and product hashes. Do not link to pirated content. Coding agents may confirm up to 3 stars; 4 and 5 require human testing.";
 
 // Additional fields are stored in the JSON blob columns in the DB.
 // Format: 'key' => ['name' => 'Human name', 'required' => TRUE?, 'options' => [...]?, 'at_end' => TRUE?].
@@ -112,38 +112,56 @@ const VERSION_EXTRA_FIELDS = [
 
 const VERSION_GUIDANCE = "";
 
-// Reports record who/what produced the result (the provenance is the confidence
-// signal), the tapHLE build, the Windows host, and the current frontier.
+// Reports carry the complete host, product, app and producer provenance. Legacy
+// rows remain readable because these fields live in the existing JSON extra
+// column; the requirements apply to new submissions only.
 const REPORT_EXTRA_FIELDS = [
     'source_type' => [
-        'name' => 'Result source',
+        'name' => 'Result producer',
         'required' => TRUE,
-        'options' => [
-            'human' => 'Human tester',
-            'agent' => 'Coding agent',
-            'telemetry' => 'Automatic telemetry',
-        ],
+        'options' => ['human' => 'Human tester', 'agent' => 'Coding agent', 'telemetry' => 'Automatic telemetry'],
     ],
-    'source_name' => [
-        'name' => 'Source name (person, agent model, or telemetry rule)',
-    ],
-    'taphle_version' => [
-        'name' => 'tapHLE version / commit',
+    'source_name' => ['name' => 'Producer name', 'required' => TRUE],
+    'platform' => [
+        'name' => 'Host platform',
         'required' => TRUE,
+        'options' => ['Windows'=>'Windows','Linux'=>'Linux','macOS'=>'macOS','Android'=>'Android','iOS'=>'iOS'],
     ],
-    'cpu' => [
-        'name' => 'CPU',
+    'architecture' => ['name' => 'Host architecture', 'required' => TRUE],
+    'os_version' => ['name' => 'Host OS version', 'required' => TRUE],
+    'taphle_commit' => [
+        'name' => 'Full tapHLE commit',
+        'required' => TRUE,
+        'pattern' => '/\A[0-9a-f]{40}\z/D',
     ],
-    'gpu' => [
-        'name' => 'GPU',
+    'artifact_sha256' => [
+        'name' => 'Tested product SHA-256',
+        'required' => TRUE,
+        'pattern' => '/\A[0-9a-f]{64}\z/D',
     ],
-    'frontier' => [
-        'name' => 'Current frontier (where it stops)',
-        'at_end' => TRUE,
+    'app_artifact_sha256' => [
+        'name' => 'Tested app artifact SHA-256',
+        'required' => TRUE,
+        'pattern' => '/\A[0-9a-f]{64}\z/D',
     ],
+    'build_provenance' => ['name' => 'Build provenance', 'required' => TRUE],
+    'build_profile' => [
+        'name' => 'Build profile',
+        'required' => TRUE,
+        'options' => ['debug'=>'Debug','release'=>'Release'],
+    ],
+    'verification_type' => [
+        'name' => 'Verification type',
+        'required' => TRUE,
+        'options' => ['compatibility'=>'Compatibility rating','release_verification'=>'Release reconfirmation'],
+    ],
+    'release_version' => ['name' => 'Release version (release reconfirmations only)'],
+    'cpu' => ['name' => 'CPU'],
+    'gpu' => ['name' => 'GPU'],
+    'frontier' => ['name' => 'Current frontier (where it stops)', 'at_end' => TRUE],
 ];
 
-const REPORT_GUIDANCE = "Record the exact tapHLE version and the current frontier (the selector, function, or panic where it stops). Keep it to one line — narrative debugging notes belong in the app's dev-docs/app-notes entry, not here.";
+const REPORT_GUIDANCE = "Record the exact visible run and complete provenance. Use compatibility only for rating history; use release reconfirmation only to qualify a named candidate without inventing another rating boundary.";
 
 // Whether to allow attaching a screenshot to a report (JPEG, <=640px, ~150KB).
 const REPORT_SCREENSHOTS_ALLOWED = TRUE;
@@ -165,18 +183,16 @@ const UNLIMITED_EXTERNAL_USER_IDS = [
 const GITHUB_CLIENT_ID = "REPLACE_WITH_GITHUB_CLIENT_ID";
 const GITHUB_CLIENT_SECRET = "REPLACE_WITH_GITHUB_CLIENT_SECRET";
 
-// API tokens for programmatic report submission (tapHLE telemetry and coding
-// agents) via POST /api/report — see API.md. Each entry maps a secret token to
-// the external identity it acts as, in "service:name" form. Use a separate
-// token per source so one can be revoked on its own, generate them with a CSPRNG
-// (e.g. `openssl rand -hex 32`), and never commit real values: this file is the
-// example, and the real config.php is git-ignored.
-//
-// API submissions are always UNAPPROVED until a moderator accepts them, exactly
-// like web-form submissions.
+// API tokens for programmatic report submission. A legacy token => identity
+// string remains accepted and always lands pending. New entries may be structured
+// with an exact identity and a per-credential trusted flag. Only credentials the
+// operator controls may set trusted=TRUE; such a token is a publish credential.
 const API_TOKENS = [
     // 'REPLACE_WITH_A_LONG_RANDOM_TOKEN' => 'telemetry:taphle',
-    // 'REPLACE_WITH_ANOTHER_RANDOM_TOKEN' => 'agent:claude-code',
+    // 'REPLACE_WITH_A_DIFFERENT_LONG_RANDOM_TOKEN' => [
+    //     'identity' => 'agent:taphle-lead',
+    //     'trusted' => TRUE,
+    // ],
 ];
 
 // How many unapproved reports one API token may have awaiting moderation before
