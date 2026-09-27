@@ -82,8 +82,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (is_array($report)) {
             // New report.
             $report['version_id'] = $versionId;
-            $report['rating'] = (int)($report['rating'] ?? 0);
             $report['created_by'] = $userId;
+            $report['extra'] = is_array($report['extra'] ?? NULL) ? $report['extra'] : [];
+            $report['extra']['source_class'] = 'human';
+            $report['extra']['source_identity'] = $session['external_user_id'];
+            unset($report['extra']['source_subtype']);
             $reportId = createReport($report);
             if ($reportId === NULL) {
                 exit400();

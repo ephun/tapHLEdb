@@ -86,18 +86,13 @@ function apiAuthenticate(string $token): ?string {
     return $credential === NULL ? NULL : $credential['identity'];
 }
 
-function apiValidateReportSemantics(array $extra, int $rating): void {
-    $sourceType = $extra['source_type'] ?? NULL;
-    if ($sourceType !== 'agent' && $sourceType !== 'telemetry') {
-        throw new ApiSubmissionError('token API source_type must be agent or telemetry');
+function apiValidateReportSemantics(array $extra, string $state, bool $hasScreenshot): void {
+    $sourceClass = $extra['source_class'] ?? NULL;
+    if ($sourceClass !== 'agent' && $sourceClass !== 'automated') {
+        throw new ApiSubmissionError('token API source_class must be agent or automated');
     }
-    if (!validateReportRatingSource($rating, $extra)) {
-        throw new ApiSubmissionError('agents and telemetry are capped at 3 stars');
-    }
-    if (!validateVerificationFields($extra)) {
-        throw new ApiSubmissionError(
-            'release_verification requires release_version X.Y.Z; compatibility must omit it'
-        );
+    if (!validateReportPolicy($state, $extra, $hasScreenshot)) {
+        throw new ApiSubmissionError('report violates source, evidence, cumulative-state, crash, telemetry, or release policy');
     }
 }
 
@@ -122,6 +117,9 @@ function apiApplyTrustedApproval(
             throw new ApiSubmissionError('trusted credential cannot approve another submitter app');
         }
         approveApp($appId, $userId);
+        if (getApp($appId)['approved'] === NULL) {
+            throw new ApiSubmissionError('trusted credential cannot approve an app without an icon');
+        }
     }
 
     $version = getVersion($versionId);
@@ -174,14 +172,11 @@ function apiFindAppIdByIdentity(array $extra): ?int {
     }
     try {
         $rows = query(
-            'SELECT app_id FROM apps WHERE json_extract(extra, :path) = :value ORDER BY app_id LIMIT 1;',
+            'SELECT app_id FROM apps WHERE lower(json_extract(extra, :path)) = lower(:value) ORDER BY app_id LIMIT 1;',
             [':path' => '$."' . $identityField . '"', ':value' => $value]
         );
     } catch (\Throwable $e) {
-        // json_extract needs SQLite's JSON1 extension. If this build lacks it,
-        // degrade to "no match" (a new app is created) rather than failing the
-        // whole submission; duplicates are a moderation problem, not data loss.
-        return NULL;
+        throw new ApiSubmissionError('database does not support canonical identity matching');
     }
     if ($rows === []) {
         return NULL;
@@ -189,19 +184,64 @@ function apiFindAppIdByIdentity(array $extra): ?int {
     return (int)$rows[0]['app_id'];
 }
 
-// Find an existing version of an app by its name (e.g. "1.3.5").
-function apiFindVersionIdByName(int $appId, string $name): ?int {
-    if ($name === '') {
+// Find an existing version by CFBundleVersion plus exact artifact provenance.
+function apiFindVersionIdByBuild(int $appId, array $extra, bool $allowLegacy = FALSE): ?int {
+    $bundleVersion = $extra['bundle_version'] ?? NULL;
+    $artifactHash = $extra['app_artifact_sha256'] ?? NULL;
+    if (!is_string($bundleVersion) || $bundleVersion === '' || !is_string($artifactHash)) {
         return NULL;
     }
     $rows = query(
-        'SELECT version_id FROM versions WHERE app_id = :app_id AND name = :name ORDER BY version_id LIMIT 1;',
-        [':app_id' => $appId, ':name' => $name]
+        'SELECT version_id FROM versions WHERE app_id = :app_id
+         AND json_extract(extra, \'$.bundle_version\') = :bundle_version
+         AND lower(json_extract(extra, \'$.app_artifact_sha256\')) = :artifact_hash
+         ORDER BY version_id LIMIT 1;',
+        [':app_id' => $appId, ':bundle_version' => $bundleVersion, ':artifact_hash' => strtolower($artifactHash)]
     );
+    if ($rows === [] && $allowLegacy) {
+        $rows = query(
+            'SELECT version_id FROM versions WHERE app_id = :app_id
+             AND json_extract(extra, \'$.bundle_version\') = :bundle_version
+             AND json_extract(extra, \'$.app_artifact_sha256\') IS NULL
+             ORDER BY version_id LIMIT 2;',
+            [':app_id' => $appId, ':bundle_version' => $bundleVersion]
+        );
+        if (count($rows) !== 1) {
+            return NULL;
+        }
+    }
     if ($rows === []) {
         return NULL;
     }
     return (int)$rows[0]['version_id'];
+}
+
+function apiCorrectCanonicalMetadata(int $appId, array $app, int $versionId, array $version, bool $trusted): void {
+    if (!$trusted) {
+        return;
+    }
+    $appExtra = $app['extra'] ?? NULL;
+    if (is_string($app['name'] ?? NULL) && is_array($appExtra) && validateExtraFields(APP_EXTRA_FIELDS, $appExtra)) {
+        query('UPDATE apps SET name = :name, extra = :extra WHERE app_id = :app_id;', [
+            ':name' => $app['name'], ':extra' => json_encode($appExtra), ':app_id' => $appId,
+        ]);
+        if (isset($app['icon'])) {
+            $icon = decodeUploadedImage($app['icon'], 512 * 1000);
+            if ($icon === NULL) {
+                throw new ApiSubmissionError('app.icon is invalid');
+            }
+            query('INSERT INTO app_icons(app_id,mime_type,image) VALUES(:app_id,:mime_type,:image)
+                   ON CONFLICT(app_id) DO UPDATE SET mime_type=excluded.mime_type,image=excluded.image;', [
+                ':app_id'=>$appId, ':mime_type'=>$icon['mime_type'], ':image'=>$icon['image'],
+            ]);
+        }
+    }
+    $versionExtra = $version['extra'] ?? NULL;
+    if (is_string($version['name'] ?? NULL) && is_array($versionExtra) && validateExtraFields(VERSION_EXTRA_FIELDS, $versionExtra)) {
+        query('UPDATE versions SET name = :name, extra = :extra WHERE version_id = :version_id;', [
+            ':name'=>$version['name'], ':extra'=>json_encode($versionExtra), ':version_id'=>$versionId,
+        ]);
+    }
 }
 
 // The public app list, for GET /api/apps: one row per approved app with its best
@@ -220,26 +260,32 @@ function apiListApps(): array {
         ORDER BY apps.name ASC;
     ');
     $platformRows = query('
-        SELECT versions.app_id AS app_id, reports.rating AS rating, reports.extra AS extra
+        SELECT versions.app_id AS app_id, reports.report_id AS report_id, reports.rating AS rating,
+               reports.compatibility_state AS compatibility_state, reports.extra AS extra
         FROM reports
         JOIN versions ON versions.version_id = reports.version_id
         JOIN apps ON apps.app_id = versions.app_id
         WHERE reports.approved IS NOT NULL AND versions.approved IS NOT NULL AND apps.approved IS NOT NULL;
     ');
     $ratingsByApp = [];
+    $statesByApp = [];
+    $latestByApp = [];
     foreach ($platformRows as $row) {
         $extra = json_decode((string)$row['extra'], TRUE);
-        if (\is_array($extra) &&
-            ($extra['verification_type'] ?? 'compatibility') === 'release_verification') {
+        if (!\is_array($extra) ||
+            ($extra['verification_type'] ?? NULL) !== 'compatibility' ||
+            ($extra['release_channel'] ?? NULL) !== 'normal_release') {
             continue;
         }
-        $platform = \is_array($extra) && \is_string($extra['platform'] ?? NULL)
-            ? $extra['platform'] : 'Windows';
+        $platform = \is_string($extra['platform'] ?? NULL) ? $extra['platform'] : 'Windows';
         $appId = (int)$row['app_id'];
         $rating = (int)$row['rating'];
-        $previous = $ratingsByApp[$appId][$platform] ?? NULL;
-        if ($previous === NULL || $rating > $previous) {
+        $testedAt = (string)($extra['tested_at'] ?? '');
+        $sequence = [$testedAt, (int)$row['report_id']];
+        if (!isset($latestByApp[$appId][$platform]) || $sequence > $latestByApp[$appId][$platform]) {
+            $latestByApp[$appId][$platform] = $sequence;
             $ratingsByApp[$appId][$platform] = $rating;
+            $statesByApp[$appId][$platform] = (string)($row['compatibility_state'] ?? '?????');
         }
     }
     $apps = [];
@@ -247,12 +293,16 @@ function apiListApps(): array {
         $extra = json_decode((string)$row['extra'], TRUE);
         $appId = (int)$row['app_id'];
         $platformRatings = $ratingsByApp[$appId] ?? [];
+        $platformStates = $statesByApp[$appId] ?? [];
         \ksort($platformRatings);
+        \ksort($platformStates);
         $apps[] = [
             'app_id' => $appId,
             'name' => (string)$row['name'],
             'rating' => $platformRatings === [] ? NULL : max($platformRatings),
             'ratings_by_platform' => $platformRatings,
+            'compatibility_state' => latestReleasedCompatibilityStateForApp($appId),
+            'states_by_platform' => $platformStates,
             'extra' => \is_array($extra) ? $extra : [],
             'url' => SITE_BASE_PATH . '/apps/' . $appId,
         ];
@@ -266,7 +316,7 @@ function apiListReleaseVerifications(string $releaseVersion, string $commit): ar
         throw new ApiSubmissionError('release and commit must be exact');
     }
     $rows = query('
-        SELECT reports.report_id, reports.created, reports.rating, reports.extra AS report_extra,
+        SELECT reports.report_id, reports.created, reports.rating, reports.compatibility_state, reports.extra AS report_extra,
                versions.version_id, versions.name AS version_name, versions.extra AS version_extra,
                apps.app_id, apps.name AS app_name, apps.extra AS app_extra,
                users.external_user_id AS submitter_identity,
@@ -296,6 +346,7 @@ function apiListReleaseVerifications(string $releaseVersion, string $commit): ar
             'report_id' => (int)$row['report_id'],
             'created' => (string)$row['created'],
             'rating' => (int)$row['rating'],
+            'compatibility_state' => (string)$row['compatibility_state'],
             'app_id' => (int)$row['app_id'],
             'app_name' => (string)$row['app_name'],
             'bundle_identifier' => \is_array($app) ? ($app['bundle_identifier'] ?? NULL) : NULL,
@@ -303,7 +354,8 @@ function apiListReleaseVerifications(string $releaseVersion, string $commit): ar
             'version_name' => (string)$row['version_name'],
             'bundle_version' => \is_array($version) ? ($version['bundle_version'] ?? NULL) : NULL,
             'submitter_identity' => (string)$row['submitter_identity'],
-            'source_type' => $report['source_type'] ?? NULL,
+            'source_class' => $report['source_class'] ?? NULL,
+            'source_subtype' => $report['source_subtype'] ?? NULL,
             'source_name' => $report['source_name'] ?? NULL,
             'platform' => $report['platform'] ?? NULL,
             'architecture' => $report['architecture'] ?? NULL,
@@ -320,8 +372,35 @@ function apiListReleaseVerifications(string $releaseVersion, string $commit): ar
     return $result;
 }
 
+function apiValidateReleaseQualification(array $records, array $requiredPlatforms): array {
+    $seen = [];
+    $candidate = NULL;
+    $errors = [];
+    foreach ($records as $record) {
+        $fingerprint = [
+            $record['taphle_commit'] ?? NULL,
+            $record['build_provenance'] ?? NULL,
+            $record['build_profile'] ?? NULL,
+        ];
+        if ($candidate === NULL) {
+            $candidate = $fingerprint;
+        } else if ($candidate !== $fingerprint) {
+            $errors[] = 'release verifications do not reference one immutable candidate';
+        }
+        if (is_string($record['platform'] ?? NULL)) {
+            $seen[$record['platform']] = TRUE;
+        }
+    }
+    foreach ($requiredPlatforms as $platform) {
+        if (!isset($seen[$platform])) {
+            $errors[] = 'missing required platform: ' . $platform;
+        }
+    }
+    return ['qualified' => $records !== [] && $errors === [], 'errors' => array_values(array_unique($errors))];
+}
 
-function apiPendingLimitExceeded(bool $trusted, int $userId, mixed $maxPending): bool {
+
+function apiPendingLimitExceeded(bool $trusted, int $userId, $maxPending): bool {
     return !$trusted && is_int($maxPending) && $maxPending > 0 &&
         apiPendingReportCount($userId) >= $maxPending;
 }

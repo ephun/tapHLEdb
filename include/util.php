@@ -36,6 +36,7 @@ function initDb(): void {
     global $db;
     $db = new \PDO('sqlite:' . SITE_DB_PATH);
     $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+    $db->exec('PRAGMA foreign_keys = ON;');
 }
 
 function query(string $query, array $args = []): array {
@@ -227,9 +228,23 @@ function validateExtraFields(array /*<array>*/ $extraFields, array $extraInput):
     return TRUE;
 }
 
-function validateReportRatingSource(int $rating, array $extra): bool {
-    $sourceType = $extra['source_type'] ?? NULL;
-    return !(($sourceType === 'agent' || $sourceType === 'telemetry') && $rating > 3);
+function compatibilityStateStarCount(string $state): ?int {
+    $counts = [
+        '?????' => 0, '*XXXX' => 1, '*????' => 1,
+        '**XXX' => 2, '**???' => 2, '***XX' => 3,
+        '***??' => 3, '****X' => 4, '****?' => 4, '*****' => 5,
+    ];
+    return $counts[$state] ?? NULL;
+}
+
+function compatibilityStateSymbol(?string $state): string {
+    $symbols = [
+        '?????' => '❓❓❓❓❓', '*XXXX' => '⭐❌❌❌❌', '*????' => '⭐❓❓❓❓',
+        '**XXX' => '⭐⭐❌❌❌', '**???' => '⭐⭐❓❓❓', '***XX' => '⭐⭐⭐❌❌',
+        '***??' => '⭐⭐⭐❓❓', '****X' => '⭐⭐⭐⭐❌', '****?' => '⭐⭐⭐⭐❓',
+        '*****' => '⭐⭐⭐⭐⭐',
+    ];
+    return $symbols[$state ?? '?????'] ?? '';
 }
 
 function validateVerificationFields(array $extra): bool {
@@ -243,6 +258,68 @@ function validateVerificationFields(array $extra): bool {
         return $releaseVersion === NULL || $releaseVersion === '';
     }
     return FALSE;
+}
+
+// Shared policy for every submission path. Transport never grants a source
+// class: callers must bind source_identity to the authenticated credential.
+function validateReportPolicy(string $state, array $extra, bool $hasScreenshot): bool {
+    $stars = compatibilityStateStarCount($state);
+    if ($stars === NULL) {
+        return FALSE;
+    }
+    $sourceClass = $extra['source_class'] ?? NULL;
+    $subtype = $extra['source_subtype'] ?? NULL;
+    if (!in_array($sourceClass, ['human', 'agent', 'automated'], TRUE)) {
+        return FALSE;
+    }
+    if ($sourceClass === 'automated') {
+        if (!in_array($subtype, ['script/test_harness', 'telemetry'], TRUE) || $stars > 3) {
+            return FALSE;
+        }
+        if ($subtype === 'telemetry' &&
+            (($extra['telemetry_consent'] ?? NULL) !== 'yes' || $state !== '*????')) {
+            return FALSE;
+        }
+        if ($subtype === 'script/test_harness' &&
+            ($extra['visual_output'] ?? NULL) === 'meaningful' && !$hasScreenshot) {
+            return FALSE;
+        }
+    } else if ($subtype !== NULL && $subtype !== '') {
+        return FALSE;
+    }
+    if ($sourceClass === 'agent' && ($stars > 3 || !$hasScreenshot)) {
+        return FALSE;
+    }
+    if (($extra['result'] ?? NULL) === 'crashed' &&
+        (!is_string($extra['crash_evidence'] ?? NULL) || $extra['crash_evidence'] === '')) {
+        return FALSE;
+    }
+    if (!is_string($extra['evidence_description'] ?? NULL) || $extra['evidence_description'] === '') {
+        return FALSE;
+    }
+    $testedAt = $extra['tested_at'] ?? NULL;
+    if (!is_string($testedAt)) {
+        return FALSE;
+    }
+    $testedDate = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $testedAt, new \DateTimeZone('UTC'));
+    $dateErrors = \DateTimeImmutable::getLastErrors();
+    if ($testedDate === FALSE ||
+        ($dateErrors !== FALSE && ($dateErrors['warning_count'] !== 0 || $dateErrors['error_count'] !== 0)) ||
+        $testedDate->format('Y-m-d\TH:i:s\Z') !== $testedAt) {
+        return FALSE;
+    }
+    if (($extra['release_channel'] ?? NULL) === 'normal_release' &&
+        (!is_string($extra['taphle_release'] ?? NULL) ||
+         preg_match('/\A\d+\.\d+\.\d+\z/D', $extra['taphle_release']) !== 1)) {
+        return FALSE;
+    }
+    if (($extra['verification_type'] ?? NULL) === 'release_verification' &&
+        (($extra['build_profile'] ?? NULL) !== 'release' ||
+         ($extra['release_channel'] ?? NULL) !== 'normal_release' ||
+         ($extra['taphle_release'] ?? NULL) !== ($extra['release_version'] ?? NULL))) {
+        return FALSE;
+    }
+    return validateVerificationFields($extra);
 }
 
 function canViewReportScreenshot(?array $session, array $report): bool {
@@ -309,7 +386,9 @@ function printCell(array $record, \stdClass $recordExtra, string $fieldKey, arra
         echo '<td>';
     }
 
-    if (($fieldInfo['datetime'] ?? FALSE) === TRUE) {
+    if (isset($fieldInfo['image'])) {
+        echo '<img class="app-icon app-icon-small" src="', htmlspecialchars(url($fieldInfo['image'] . $record[$fieldInfo['image_id']] . '/icon')), '" alt="">';
+    } else if (($fieldInfo['datetime'] ?? FALSE) === TRUE) {
         if ($cell !== NULL) {
             // SQLite uses the 'YYYY-MM-DD HH:MM:SS' format in UTC, but
             // HTML <time>'s datetime attribute wants RFC 3339 format.
@@ -319,6 +398,8 @@ function printCell(array $record, \stdClass $recordExtra, string $fieldKey, arra
             $rfc3339DateTime = $date . 'T' . $time . 'Z';
             echo '<time datetime="', $rfc3339DateTime, '">', htmlspecialchars($cell), '</time>';
         }
+    } else if (($fieldInfo['compatibility_state'] ?? FALSE) === TRUE) {
+        echo htmlspecialchars(compatibilityStateSymbol(is_string($cell) ? $cell : NULL));
     } else if (($fieldInfo['rating'] ?? FALSE) === TRUE) {
         echo htmlspecialchars(RATINGS[$cell]['symbol'] ?? '');
     } else if (isset($fieldInfo['options'])) {
@@ -362,7 +443,14 @@ function printFormCell(string $fieldKey, array $fieldInfo, string $fieldName): v
     if (($fieldInfo['required'] ?? FALSE) === TRUE) {
         $common .= ' required';
     }
-    if (($fieldInfo['rating'] ?? FALSE) === TRUE) {
+    if (($fieldInfo['compatibility_state'] ?? FALSE) === TRUE) {
+        echo '<select ', $common, '>';
+        echo '<option value="" selected>(please select)</option>';
+        foreach (COMPATIBILITY_STATES as $state => $description) {
+            echo '<option value="', htmlspecialchars((string)$state), '">', htmlspecialchars($description), '</option>';
+        }
+        echo '</select>';
+    } else if (($fieldInfo['rating'] ?? FALSE) === TRUE) {
         echo '<select ', $common, '>';
         echo '<option value="" selected>(please select)</option>';
         for ($i = 1; $i <= 5; $i++) {
@@ -400,7 +488,7 @@ function printFormCell(string $fieldKey, array $fieldInfo, string $fieldName): v
 // The key 'extra' in a record is always treated as a JSON object.
 // The key 'unapproved' is also special. If it is truthy, the row for the record
 // is tagged with the 'unapproved' CSS class.
-function printTable(array /*<array>*/ $fields, array /*<array>*/ $records, array $rowId = NULL, bool $searchable = FALSE): void {
+function printTable(array /*<array>*/ $fields, array /*<array>*/ $records, ?array $rowId = NULL, bool $searchable = FALSE): void {
     echo '<table', ($searchable ? ' class=searchable-table' : ''), '>';
 
     echo '<thead>';
@@ -485,7 +573,8 @@ function printRecordForm(array /*<array>*/ $fields, string $recordName): void {
     echo '</table>';
 }
 
-function printRatingsLegend(array $appRows = NULL): void {
+function printRatingsLegend(?array $appRows = NULL): void {
+    $ratingStats = [];
     $columns = [];
     if ($appRows !== NULL) {
         $columns['count'] = [
@@ -493,9 +582,9 @@ function printRatingsLegend(array $appRows = NULL): void {
         ];
     }
     $columns += [
-        'rating' => [
-            'name' => 'Rating',
-            'rating' => TRUE,
+        'compatibility_state' => [
+            'name' => 'Compatibility state',
+            'compatibility_state' => TRUE,
         ],
         'description' => [
             'name' => 'Description',
@@ -507,16 +596,16 @@ function printRatingsLegend(array $appRows = NULL): void {
         ];
         $ratingStats = [];
         foreach ($appRows as $appRow) {
-            $appRating = $appRow['best_rating'];
-            $ratingStats[$appRating] = ($ratingStats[$appRating] ?? 0) + 1;
+            $appState = $appRow['compatibility_state'] ?? '?????';
+            $ratingStats[$appState] = ($ratingStats[$appState] ?? 0) + 1;
         }
     }
     $rows = [];
-    for ($i = 1; $i <= 5; $i++) {
+    foreach (COMPATIBILITY_STATES as $state => $description) {
         $rows[] = [
-            'rating' => $i,
-            'description' => RATINGS[$i]['description'],
-            'count' => $ratingStats[$i] ?? 0,
+            'compatibility_state' => $state,
+            'description' => $description,
+            'count' => $ratingStats[$state] ?? 0,
         ];
     }
     printTable($columns, $rows);

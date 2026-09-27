@@ -1,6 +1,25 @@
 tapHLEdb — the tapHLE app compatibility database
 ================================================
 
+Compatibility model v2
+----------------------
+
+Apps use canonical `CFBundleIdentifier` identity, display metadata, and a
+required icon. Versions are keyed primarily by `CFBundleVersion` plus the exact
+app artifact SHA-256, so equal declared builds with different artifacts remain
+distinct. Apps/Versions may be catalogued before testing and display
+`❓❓❓❓❓`.
+
+Reports are append-only evidence for one exact test run and environment.
+Compatibility uses exactly ten cumulative ⭐/❓/❌ states. Human, Agent, and
+Automated are the only source classes; telemetry is an Automated subtype.
+Agent and deterministic automation evidence is capped at three stars,
+telemetry can establish execution only, and four/five require a human.
+Developer notes are separate from ratings. See [`API.md`](API.md) for the
+submission contract and [`MIGRATION.md`](MIGRATION.md) for the mandatory
+backup/archive/reset path from the legacy catalog. Legacy numeric ratings are
+never silently reinterpreted.
+
 A small web app for the public [tapHLE](https://github.com/ephun/tapHLE) app
 compatibility database: where each early iPhone OS app currently stands when run
 under tapHLE on Windows. It is a live database (humans and coding agents submit
@@ -75,6 +94,9 @@ It uses an in-memory SQLite database and does not touch the configured site data
 
 Deployment
 ----------
+
+Existing deployments must complete the explicit offline procedure in
+[`MIGRATION.md`](MIGRATION.md) before this code is started.
 
 Use the example nginx + PHP-FPM config. The app can serve from a domain root or
 from a subpath — set `SITE_BASE_PATH` in `config.php` (the tapHLE deployment uses

@@ -5,7 +5,7 @@
 //
 // This is a tapHLE addition. It needs no credential because it returns strictly
 // what the public web page already shows: approved apps and their best approved
-// rating. Nothing unapproved, no reports, no submitter identities.
+// compatibility state. Nothing unapproved, no reports, no submitter identities.
 
 namespace hikari_no_yume\touchHLE\app_compatibility_db;
 

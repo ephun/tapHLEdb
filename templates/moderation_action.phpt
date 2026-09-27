@@ -27,6 +27,12 @@ if ($objectKind === 'app') {
     }
     $appId = (int)$reportInfo['app_id'];
     $versionId = (int)$reportInfo['version_id'];
+} else if ($objectKind === 'note') {
+    $noteInfo = getDeveloperNote($noteId);
+    if ($noteInfo === NULL) { show404(); exit; }
+    if ($noteInfo['app_id'] !== NULL) $appId = (int)$noteInfo['app_id'];
+    else if ($noteInfo['version_id'] !== NULL) $appId = (int)getVersion((int)$noteInfo['version_id'])['app_id'];
+    else $appId = (int)getReport((int)$noteInfo['report_id'])['app_id'];
 } else {
     throw new Error;
 }
@@ -59,6 +65,8 @@ try {
                 approveVersion($versionId, $userId);
                 approveApp($appId, $userId);
             }
+        } else if ($objectKind === 'note') {
+            approveDeveloperNote($noteId, $userId);
         } else {
             throw new Error;
         }
@@ -69,6 +77,8 @@ try {
             deleteVersion($versionId);
         } else if ($objectKind === 'report') {
             deleteReport($reportId);
+        } else if ($objectKind === 'note') {
+            deleteDeveloperNote($noteId);
         } else {
             throw new Error;
         }
@@ -89,6 +99,21 @@ try {
                 exit;
             }
             reparentReport($reportId, $versionId);
+        } else {
+            throw new Error;
+        }
+    } else if ($moderationAction === 'merge') {
+        if ($objectKind === 'app') {
+            $targetId = (int)($_POST['target_app'] ?? 0);
+            if ($targetId === $appId || getApp($targetId) === NULL) exit400();
+            mergeAppInto($appId, $targetId);
+            $appId = $targetId;
+        } else if ($objectKind === 'version') {
+            $targetId = (int)($_POST['target_version'] ?? 0);
+            if ($targetId === $versionId || getVersion($targetId) === NULL) exit400();
+            if (!mergeVersionInto($versionId, $targetId)) exit400();
+            $versionId = $targetId;
+            $appId = (int)getVersion($targetId)['app_id'];
         } else {
             throw new Error;
         }

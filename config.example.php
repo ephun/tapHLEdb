@@ -38,33 +38,52 @@ const SITE_BASE_PATH = '';
 const SITE_CONTENT_LICENSE_NAME = 'CC BY 4.0 International';
 const SITE_CONTENT_LICENSE_URL = 'https://creativecommons.org/licenses/by/4.0/';
 
-// Compatibility ratings used in reports (1 to 5, larger is better). These match
-// tapHLE's rating scale in the main repository's compatibility documentation.
+// Derived leading-star descriptions retained for backward-compatible reads.
+// New writes use COMPATIBILITY_STATES below.
 const RATINGS = [
+    0 => [
+        'symbol' => '❓❓❓❓❓',
+        'description' => 'Untested or no compatibility evidence exists yet.',
+    ],
     1 => [
         'symbol' => '⭐️',
-        'description' => 'Broken — the app does not reach usable content (e.g. it crashes before or during launch).',
+        'description' => 'Exact run/execution observed.',
     ],
     2 => [
         'symbol' => '⭐️⭐️',
-        'description' => 'Starts — an intro or menu works, but gameplay does not.',
+        'description' => 'Stable meaningful interactive content and basic interaction.',
     ],
     3 => [
         'symbol' => '⭐️⭐️⭐️',
-        'description' => 'In game — some gameplay works, but major problems remain.',
+        'description' => 'Primary activity/core functionality supports meaningful use.',
     ],
     4 => [
         'symbol' => '⭐️⭐️⭐️⭐️',
-        'description' => 'Playable — the whole app can be used, with only small problems.',
+        'description' => 'Primary intended experience usable end-to-end without a major blocker; human only.',
     ],
     5 => [
         'symbol' => '⭐️⭐️⭐️⭐️⭐️',
-        'description' => 'Fully working — everything important works.',
+        'description' => 'Fully working to the extent reasonably testable; human only.',
     ],
 ];
 
+// Exact cumulative states stored by the API/database. ASCII values make
+// validation independent of Unicode presentation.
+const COMPATIBILITY_STATES = [
+    '?????' => '❓❓❓❓❓ — untested',
+    '*XXXX' => '⭐❌❌❌❌ — ran; level 2 tested and failed',
+    '*????' => '⭐❓❓❓❓ — ran; higher levels unknown',
+    '**XXX' => '⭐⭐❌❌❌ — interaction works; level 3 tested and failed',
+    '**???' => '⭐⭐❓❓❓ — interaction works; higher levels unknown',
+    '***XX' => '⭐⭐⭐❌❌ — core use works; level 4 tested and failed',
+    '***??' => '⭐⭐⭐❓❓ — core use works; higher levels unknown',
+    '****X' => '⭐⭐⭐⭐❌ — end-to-end works; level 5 tested and failed',
+    '****?' => '⭐⭐⭐⭐❓ — end-to-end works; level 5 unknown',
+    '*****' => '⭐⭐⭐⭐⭐ — fully working to the extent reasonably testable',
+];
+
 // Plain text shown when submitting a new app, report or version.
-const GENERAL_GUIDANCE = "Every rating must come from an actual visible tapHLE run on the named host using the exact app and product hashes. Do not link to pirated content. Coding agents may confirm up to 3 stars; 4 and 5 require human testing.";
+const GENERAL_GUIDANCE = "Every compatibility state must come from one exact meaningful tapHLE test run with complete provenance. Preserve unknown and tested-failed positions. Do not submit intermediate debugging runs or link to pirated content.";
 
 // Additional fields are stored in the JSON blob columns in the DB.
 // Format: 'key' => ['name' => 'Human name', 'required' => TRUE?, 'options' => [...]?, 'at_end' => TRUE?].
@@ -108,6 +127,11 @@ const VERSION_EXTRA_FIELDS = [
     'minimum_os_version' => [
         'name' => 'Minimum OS version',
     ],
+    'app_artifact_sha256' => [
+        'name' => 'Exact app artifact SHA-256',
+        'required' => TRUE,
+        'pattern' => '/\A[0-9a-f]{64}\z/D',
+    ],
 ];
 
 const VERSION_GUIDANCE = "";
@@ -116,11 +140,16 @@ const VERSION_GUIDANCE = "";
 // rows remain readable because these fields live in the existing JSON extra
 // column; the requirements apply to new submissions only.
 const REPORT_EXTRA_FIELDS = [
-    'source_type' => [
-        'name' => 'Result producer',
+    'source_class' => [
+        'name' => 'Source class',
         'required' => TRUE,
-        'options' => ['human' => 'Human tester', 'agent' => 'Coding agent', 'telemetry' => 'Automatic telemetry'],
+        'options' => ['human' => 'Human', 'agent' => 'Agent', 'automated' => 'Automated'],
     ],
+    'source_subtype' => [
+        'name' => 'Automated subtype',
+        'options' => ['script/test_harness' => 'Script / test harness', 'telemetry' => 'Opt-in telemetry'],
+    ],
+    'source_identity' => ['name' => 'Source identity', 'required' => TRUE],
     'source_name' => ['name' => 'Producer name', 'required' => TRUE],
     'platform' => [
         'name' => 'Host platform',
@@ -150,18 +179,53 @@ const REPORT_EXTRA_FIELDS = [
         'required' => TRUE,
         'options' => ['debug'=>'Debug','release'=>'Release'],
     ],
+    'taphle_release' => ['name' => 'tapHLE release'],
+    'release_channel' => [
+        'name' => 'tapHLE channel',
+        'required' => TRUE,
+        'options' => ['normal_release'=>'Normal release','development'=>'Development build'],
+    ],
     'verification_type' => [
         'name' => 'Verification type',
         'required' => TRUE,
         'options' => ['compatibility'=>'Compatibility rating','release_verification'=>'Release reconfirmation'],
     ],
     'release_version' => ['name' => 'Release version (release reconfirmations only)'],
+    'test_run_id' => ['name' => 'Test run ID', 'required' => TRUE],
+    'tested_at' => [
+        'name' => 'Test timestamp (RFC 3339 UTC)',
+        'required' => TRUE,
+        'pattern' => '/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/D',
+    ],
+    'result' => [
+        'name' => 'Run result',
+        'required' => TRUE,
+        'options' => ['completed'=>'Completed','failed'=>'Failed','crashed'=>'Crashed'],
+    ],
+    'evidence_description' => ['name' => 'Evidence description', 'required' => TRUE],
+    'crash_evidence' => ['name' => 'Crash evidence / log reference'],
+    'visual_output' => [
+        'name' => 'Meaningful visual output',
+        'required' => TRUE,
+        'options' => ['meaningful'=>'Yes','none'=>'No'],
+    ],
+    'telemetry_consent' => [
+        'name' => 'Telemetry consent',
+        'options' => ['yes'=>'Explicitly consented'],
+    ],
+    'duration_seconds' => ['name' => 'Duration in seconds'],
+    'execution_states' => ['name' => 'Execution states'],
+    'termination' => ['name' => 'Termination'],
+    'logs' => ['name' => 'Log reference'],
     'cpu' => ['name' => 'CPU'],
     'gpu' => ['name' => 'GPU'],
+    'device' => ['name' => 'Device'],
     'frontier' => ['name' => 'Current frontier (where it stops)', 'at_end' => TRUE],
 ];
 
-const REPORT_GUIDANCE = "Record the exact visible run and complete provenance. Use compatibility only for rating history; use release reconfirmation only to qualify a named candidate without inventing another rating boundary.";
+const REPORT_GUIDANCE = "Record the exact run and complete provenance. Select one of the ten cumulative states. Development results never replace the latest normal-release state.";
+
+const RELEASE_REQUIRED_PLATFORMS = ['Windows', 'Linux', 'macOS'];
 
 // Whether to allow attaching a screenshot to a report (JPEG, <=640px, ~150KB).
 const REPORT_SCREENSHOTS_ALLOWED = TRUE;

@@ -1,6 +1,53 @@
 tapHLEdb API
 ============
 
+Compatibility model v2 (authoritative)
+--------------------------------------
+
+The v2 write endpoints accept exact cumulative `compatibility_state` values,
+not an invented numeric rating: `?????`, `*XXXX`, `*????`, `**XXX`, `**???`,
+`***XX`, `***??`, `****X`, `****?`, `*****`.
+
+They render as the ten specified ⭐/❓/❌ positions. `rating` in read responses
+is only the derived count of leading stars for backward-compatible consumers.
+The public summary is the latest approved `normal_release` compatibility run;
+development and release-verification reports never overwrite it.
+
+`POST /api/report` requires App/Version provenance (including the Version's
+exact app SHA-256) and Report provenance: `source_class`, optional automated
+`source_subtype`, source name, host/platform/OS/architecture, tapHLE
+commit/artifact/build/release channel, app hash, verification type, test run ID,
+RFC 3339 UTC timestamp, result, evidence description, visual-output flag, and
+frontier/evidence as applicable. The server binds `source_identity` to the
+authenticated credential. The three source classes are `human`, `agent`, and
+`automated`; the token API cannot claim `human`. Automated subtype is exactly
+`script/test_harness` or `telemetry`.
+
+Agent reports require a screenshot and can establish at most three stars.
+Controlled scripts require a screenshot when meaningful visual output exists
+and can establish only deterministic thresholds through three. Telemetry needs
+explicit `telemetry_consent=yes`, can establish execution only, and never infers
+playability from duration. Crashes require `crash_evidence`. Release
+verification additionally requires a normal release-profile candidate whose
+`taphle_release` equals `release_version`.
+
+`POST /api/catalog` accepts the same authenticated App/Version objects without
+creating a Report. A new App requires an extracted PNG/JPEG data-URL `icon`.
+Apps match case-insensitively by bundle ID; Versions match by bundle version and
+exact app artifact hash. Trusted credentials can correct canonical metadata and
+icon and approve only their own hierarchy. Ordinary credentials remain pending.
+This is how reviewed known-but-untested entries are created; they read as
+`?????` / ❓❓❓❓❓.
+
+`GET /api/apps` adds `compatibility_state` and `states_by_platform`; its legacy
+numeric fields are derived. `GET /api/release-verifications` adds a
+`qualification` object and is qualified only when all configured required
+platforms reference one immutable commit/build candidate.
+
+`POST /api/note` accepts `body` and exactly one of `app_id`, `version_id`, or
+`report_id`. Notes never contain a compatibility state. Ordinary credentials
+create moderated notes; trusted credentials approve only their own note.
+
 The tapHLE deployment is mounted at `/compatibility`:
 
 ```
@@ -14,12 +61,10 @@ Reads need no credential. Submission uses one configured bearer credential.
 `GET /api/apps`
 ---------------
 
-Returns approved apps and approved compatibility ratings only. Release
-reconfirmations never affect either summary. `rating` remains the best
-compatibility rating across all hosts for backward compatibility.
-`ratings_by_platform` is the host-qualified view new clients should use. Reports created before platform was
-stored are classified as Windows because production policy allowed Windows
-reports only at that time.
+Returns approved apps and their latest approved normal-release compatibility
+state. Release verification and development results do not affect the summary.
+Use `compatibility_state` and `states_by_platform`; numeric rating fields are
+derived compatibility output only.
 
 ```json
 {
@@ -27,6 +72,7 @@ reports only at that time.
     "app_id": 4,
     "name": "Example",
     "rating": 3,
+    "compatibility_state": "***??",
     "ratings_by_platform": {"Linux": 2, "Windows": 3},
     "extra": {"bundle_identifier": "com.example.app"},
     "url": "/compatibility/apps/4"
@@ -67,13 +113,14 @@ Request
 -------
 
 Use `app_id` or an `app` object, and `version_id` or a `version` object. New apps
-are matched by bundle identifier; new versions are matched by name within the
-app. The whole operation is one transaction.
+are matched by bundle identifier; Versions match by `CFBundleVersion` and exact
+app artifact SHA-256. The whole operation is one transaction.
 
 ```json
 {
   "app": {
     "name": "Example",
+    "icon": "data:image/png;base64,...",
     "extra": {"bundle_identifier": "com.example.app"}
   },
   "version": {
@@ -81,13 +128,15 @@ app. The whole operation is one transaction.
     "extra": {
       "bundle_version": "1.0",
       "short_version": "1.0",
-      "minimum_os_version": "2.0"
+      "minimum_os_version": "2.0",
+      "app_artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     }
   },
   "report": {
-    "rating": 3,
+    "compatibility_state": "***??",
     "extra": {
-      "source_type": "agent",
+      "source_class": "agent",
+      "source_identity": "agent:taphle-lead",
       "source_name": "tapHLE Lead",
       "platform": "Windows",
       "architecture": "x86_64",
@@ -97,7 +146,14 @@ app. The whole operation is one transaction.
       "app_artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "build_provenance": "clean checkout; rust 1.97.1; release workflow run 123",
       "build_profile": "release",
+      "taphle_release": "0.2.4",
+      "release_channel": "normal_release",
       "verification_type": "compatibility",
+      "test_run_id": "workflow-123/example/windows",
+      "tested_at": "2026-09-26T12:00:00Z",
+      "result": "completed",
+      "evidence_description": "Visible primary activity remained interactive.",
+      "visual_output": "meaningful",
       "frontier": "gameplay loop starts and persists"
     },
     "screenshot": "data:image/jpeg;base64,..."
@@ -107,7 +163,7 @@ app. The whole operation is one transaction.
 
 Required report provenance:
 
-* `source_type`: the token API accepts `agent` or `telemetry`, never `human`;
+* `source_class`: the token API accepts `agent` or `automated`, never `human`;
 * `source_name`;
 * `platform`: `Windows`, `Linux`, `macOS`, `Android`, or `iOS`;
 * `architecture` and `os_version`;
@@ -120,7 +176,7 @@ Required report provenance:
 `release_verification` additionally requires a plain `release_version` such as
 `0.2.4`. A compatibility report must omit it. Release reconfirmations remain
 separate from rating-changing history even though both use the append-only
-reports table. Agents and telemetry are capped at three stars.
+reports table. The source/evidence caps in the authoritative section apply.
 
 Every extra-field value is a JSON string. Unknown fields, short commits, malformed
 hashes, unsupported platforms and invalid option values are rejected.
@@ -128,7 +184,7 @@ hashes, unsupported platforms and invalid option values are rejected.
 Screenshot
 ----------
 
-`screenshot` is optional. When present it is the same JPEG data URL accepted by
+`screenshot` is optional only where source policy permits. When present it is the same JPEG data URL accepted by
 the web form and is limited to roughly 150 KB after decoding. Capture the visible
 tapHLE/app window or a tight relevant crop and inspect it for sensitive material
 before submission. Omit it when no safe image proves the result.
@@ -188,7 +244,7 @@ match. Unapproved rows and ordinary compatibility reports are excluded.
     "version_name": "1.0",
     "bundle_version": "1.0",
     "submitter_identity": "agent:taphle-lead",
-    "source_type": "agent",
+    "source_class": "agent",
     "source_name": "tapHLE Lead",
     "platform": "Linux",
     "architecture": "x86_64",
