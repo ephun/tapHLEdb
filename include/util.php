@@ -260,6 +260,14 @@ function validateVerificationFields(array $extra): bool {
     return FALSE;
 }
 
+function validateUtcTimestamp(string $value): bool {
+    $date = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $value, new \DateTimeZone('UTC'));
+    $errors = \DateTimeImmutable::getLastErrors();
+    return $date !== FALSE &&
+        ($errors === FALSE || ($errors['warning_count'] === 0 && $errors['error_count'] === 0)) &&
+        $date->format('Y-m-d\TH:i:s\Z') === $value;
+}
+
 // Shared policy for every submission path. Transport never grants a source
 // class: callers must bind source_identity to the authenticated credential.
 function validateReportPolicy(string $state, array $extra, bool $hasScreenshot): bool {
@@ -298,14 +306,7 @@ function validateReportPolicy(string $state, array $extra, bool $hasScreenshot):
         return FALSE;
     }
     $testedAt = $extra['tested_at'] ?? NULL;
-    if (!is_string($testedAt)) {
-        return FALSE;
-    }
-    $testedDate = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $testedAt, new \DateTimeZone('UTC'));
-    $dateErrors = \DateTimeImmutable::getLastErrors();
-    if ($testedDate === FALSE ||
-        ($dateErrors !== FALSE && ($dateErrors['warning_count'] !== 0 || $dateErrors['error_count'] !== 0)) ||
-        $testedDate->format('Y-m-d\TH:i:s\Z') !== $testedAt) {
+    if (!is_string($testedAt) || !validateUtcTimestamp($testedAt)) {
         return FALSE;
     }
     if (($extra['release_channel'] ?? NULL) === 'normal_release' &&
@@ -436,7 +437,7 @@ function printCell(array $record, \stdClass $recordExtra, string $fieldKey, arra
 }
 
 // Helper function for printRecordForm()
-function printFormCell(string $fieldKey, array $fieldInfo, string $fieldName): void {
+function printFormCell(string $fieldKey, array $fieldInfo, string $fieldName, ?string $value = NULL): void {
     echo '<td>';
     $common = 'name="' . htmlspecialchars($fieldName) . '"';
     $common .= ' id="' . htmlspecialchars($fieldName) . '"';
@@ -445,33 +446,33 @@ function printFormCell(string $fieldKey, array $fieldInfo, string $fieldName): v
     }
     if (($fieldInfo['compatibility_state'] ?? FALSE) === TRUE) {
         echo '<select ', $common, '>';
-        echo '<option value="" selected>(please select)</option>';
+        echo '<option value=""', $value === NULL || $value === '' ? ' selected' : '', '>(please select)</option>';
         foreach (COMPATIBILITY_STATES as $state => $description) {
-            echo '<option value="', htmlspecialchars((string)$state), '">', htmlspecialchars($description), '</option>';
+            echo '<option value="', htmlspecialchars((string)$state), '"', $value === (string)$state ? ' selected' : '', '>', htmlspecialchars($description), '</option>';
         }
         echo '</select>';
     } else if (($fieldInfo['rating'] ?? FALSE) === TRUE) {
         echo '<select ', $common, '>';
-        echo '<option value="" selected>(please select)</option>';
+        echo '<option value=""', $value === NULL || $value === '' ? ' selected' : '', '>(please select)</option>';
         for ($i = 1; $i <= 5; $i++) {
-            echo '<option value=', $i, '> ', $i, ' - ', htmlspecialchars(RATINGS[$i]['symbol']), ' - ', htmlspecialchars(RATINGS[$i]['description']), '</option>';
+            echo '<option value=', $i, $value === (string)$i ? ' selected' : '', '> ', $i, ' - ', htmlspecialchars(RATINGS[$i]['symbol']), ' - ', htmlspecialchars(RATINGS[$i]['description']), '</option>';
         }
         echo '</select>';
     } else if (isset($fieldInfo['options'])) {
         echo '<select ', $common, '>';
-        echo '<option value="" selected>(please select)</option>';
+        echo '<option value=""', $value === NULL || $value === '' ? ' selected' : '', '>(please select)</option>';
         foreach ($fieldInfo['options'] as $optionKey => $optionName) {
-            echo '<option value="', htmlspecialchars((string)$optionKey), '">', htmlspecialchars($optionName), '</option>';
+            echo '<option value="', htmlspecialchars((string)$optionKey), '"', $value === (string)$optionKey ? ' selected' : '', '>', htmlspecialchars($optionName), '</option>';
         }
         echo '</select>';
     } else if (isset($fieldInfo['image_upload'])) {
         echo '<noscript>Uploading an image requires JavaScript support. You seem to have JavaScript disabled.</noscript>';
-        echo '<input type=hidden ', $common, ' class=image-upload>';
+        echo '<input type=hidden ', $common, ' class=image-upload', $value !== NULL ? ' value="' . htmlspecialchars($value) . '"' : '', '>';
     } else {
         // Max length limit of 255 UTF-16 code-units is arbitrary; SQLite
         // supports longer, but allowing excessively long text can potentially
         // be abused. See also validateInputLength().
-        echo '<input type=text ', $common, ' maxlength=255>';
+        echo '<input type=text ', $common, ' maxlength=255', $value !== NULL ? ' value="' . htmlspecialchars($value) . '"' : '', '>';
     }
     echo '</td>';
 }
@@ -550,7 +551,7 @@ function printRecord(array /*<array>*/ $fields, array $record): void {
 // '$recordName[field_key_here]', which PHP will parse into an associative
 // array when submitted, so it's possible to have several records in a single
 // form.
-function printRecordForm(array /*<array>*/ $fields, string $recordName): void {
+function printRecordForm(array /*<array>*/ $fields, string $recordName, array $values = []): void {
     echo '<table>';
 
     echo '<tbody>';
@@ -565,7 +566,10 @@ function printRecordForm(array /*<array>*/ $fields, string $recordName): void {
             echo '<span class=required>*</span>';
         }
         echo '</th>';
-        printFormCell($fieldKey, $fieldInfo, $fieldName);
+        $value = (($fieldInfo['extra'] ?? FALSE) === TRUE)
+               ? ($values['extra'][$fieldKey] ?? NULL)
+               : ($values[$fieldKey] ?? NULL);
+        printFormCell($fieldKey, $fieldInfo, $fieldName, is_string($value) ? $value : NULL);
         echo '</tr>';
     }
     echo '</tbody>';

@@ -263,7 +263,7 @@ function printApp(array $appInfo, bool $moderatorView): void {
     printRecord($fields, $appInfo);
 }
 
-function printAppForm(): void {
+function printAppForm(array $values = []): void {
     $fields = [
         'name' => [
             'name' => 'App name',
@@ -278,7 +278,7 @@ function printAppForm(): void {
         'required' => TRUE,
     ];
 
-    printRecordForm($fields, 'app');
+    printRecordForm($fields, 'app', $values);
 }
 
 // It is recommended to call this as part of a transaction.
@@ -628,7 +628,7 @@ function listVersionsForApp(int $appId, bool $showUnapproved, bool $moderatorVie
     printTable($columns, $rows, ['version-', 'version_id']);
 }
 
-function printVersionForm(): void {
+function printVersionForm(array $values = []): void {
     $fields = [
         'name' => [
             'name' => 'Version number',
@@ -638,7 +638,7 @@ function printVersionForm(): void {
     $fields += convertExtraFieldInfo(VERSION_EXTRA_FIELDS, FALSE);
     $fields += convertExtraFieldInfo(VERSION_EXTRA_FIELDS, TRUE);
 
-    printRecordForm($fields, 'version');
+    printRecordForm($fields, 'version', $values);
 }
 
 // It is recommended to call this as part of a transaction.
@@ -963,7 +963,7 @@ function listReportScreenshotsForApp(int $appId, bool $showUnapproved, bool $mod
     }
 }
 
-function printReportForm(): void {
+function printReportForm(array $values = []): void {
     $fields = convertExtraFieldInfo(REPORT_EXTRA_FIELDS, FALSE);
     unset($fields['source_class'], $fields['source_subtype'], $fields['source_identity']);
     $fields += [
@@ -985,7 +985,7 @@ function printReportForm(): void {
         ];
     }
 
-    printRecordForm($fields, 'report');
+    printRecordForm($fields, 'report', $values);
 }
 
 // It is recommended to call this as part of a transaction.

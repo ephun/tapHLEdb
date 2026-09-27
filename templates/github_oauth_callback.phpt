@@ -4,6 +4,11 @@ namespace hikari_no_yume\touchHLE\app_compatibility_db;
 
 // This is the page that GitHub redirects to after signing in.
 
+$returnTo = verifyOAuthState($_GET['state'] ?? NULL);
+if ($returnTo === NULL || !is_string($_GET['code'] ?? NULL)) {
+    exit400();
+}
+
 $oauthAccessToken = getOAuthAccessToken($_GET['code']);
 $userInfo = getGitHubUserInfo($oauthAccessToken);
 
@@ -22,4 +27,4 @@ setSession([
 ]);
 updateUsernameForUser($externalUserId, $externalUsername);
 
-redirect('/');
+redirect($returnTo);

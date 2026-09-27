@@ -274,3 +274,73 @@ Operational security
 * `API_MAX_PENDING_REPORTS` bounds moderation noise from ordinary credentials.
 * A config with no `API_TOKENS` returns 401 and leaves submission disabled.
 * The endpoint never reads or sets a session cookie.
+
+Authenticated browser prefill
+-----------------------------
+
+`GET /compatibility/reports/new` accepts the versioned, bracket-encoded query
+contract `prefill[v]=1`. This is the browser handoff for tapHLE. Each value must
+be URL-encoded normally (for example with an application/x-www-form-urlencoded
+builder); parameter names below are exact.
+
+| Namespace | Accepted keys |
+|---|---|
+| `prefill[app]` | `bundle_identifier`, `display_name` |
+| `prefill[version]` | `bundle_version`, `short_version`, `minimum_os_version`, `app_artifact_sha256` |
+| `prefill[report]` | `source_name`, `platform`, `architecture`, `os_version`, `taphle_commit`, `artifact_sha256`, `app_artifact_sha256`, `build_provenance`, `build_profile`, `taphle_release`, `release_channel`, `verification_type`, `release_version`, `test_run_id`, `tested_at`, `result`, `evidence_description`, `crash_evidence`, `visual_output`, `duration_seconds`, `execution_states`, `termination`, `logs`, `cpu`, `gpu`, `device`, `frontier` |
+
+The version's `app_artifact_sha256` is copied into the report draft, so clients
+normally send it only under `prefill[version]`. If both copies are sent they
+must match. `short_version`, falling back to `bundle_version`, supplies the
+editable version label for a new Version.
+
+Example (shown across lines for readability; an actual URL has one query
+string):
+
+```text
+https://taphle.ephun.net/compatibility/reports/new?
+prefill%5Bv%5D=1&
+prefill%5Bapp%5D%5Bbundle_identifier%5D=com.example.game&
+prefill%5Bapp%5D%5Bdisplay_name%5D=Example&
+prefill%5Bversion%5D%5Bbundle_version%5D=42&
+prefill%5Bversion%5D%5Bshort_version%5D=1.2&
+prefill%5Bversion%5D%5Bminimum_os_version%5D=2.0&
+prefill%5Bversion%5D%5Bapp_artifact_sha256%5D=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb&
+prefill%5Breport%5D%5Bplatform%5D=Windows&
+prefill%5Breport%5D%5Bos_version%5D=11%2024H2&
+prefill%5Breport%5D%5Barchitecture%5D=x86_64&
+prefill%5Breport%5D%5Btaphle_commit%5D=0123456789abcdef0123456789abcdef01234567&
+prefill%5Breport%5D%5Bartifact_sha256%5D=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&
+prefill%5Breport%5D%5Bbuild_profile%5D=release&
+prefill%5Breport%5D%5Brelease_channel%5D=normal_release&
+prefill%5Breport%5D%5Bverification_type%5D=compatibility&
+prefill%5Breport%5D%5Btested_at%5D=2026-09-26T12%3A00%3A00Z
+```
+
+The legacy `app=<positive-id>` and `version=<positive-id>` conveniences remain
+available. When combined with prefill, the IDs must agree with the canonical
+bundle identifier and with the Version's exact CFBundleVersion/app SHA-256.
+Without IDs, the server matches App case-insensitively by bundle identifier and
+Version by exact CFBundleVersion plus app SHA-256. A match selects the existing
+canonical record; draft display metadata never overwrites it. An unknown
+identity leaves editable new-App/new-Version fields, and an empty catalog still
+renders the ordinary contribution form.
+
+All prefill is untrusted draft input. It never submits by GET, creates a row,
+selects a compatibility state, approves content, or changes trust/moderation.
+The user must be signed in, may edit new-record and report fields, must choose a
+compatibility state, and must pass the normal POST validation and moderation
+flow. If sign-in is needed, a short-lived signed OAuth state returns the user to
+the same prefilled form; external return URLs are not allowed. Unknown fields,
+arrays where scalars are required, oversized values,
+malformed hashes/commits/timestamps, unsupported options, mismatched canonical
+IDs, and inconsistent release-verification combinations are rejected.
+
+The contract intentionally does **not** accept an icon: data URLs are too large
+and sensitive for browser URLs, so a new App's icon remains a user-selected
+upload. It also does not accept `compatibility_state`, numeric `rating`,
+`source_class`, `source_subtype`, `source_identity`, telemetry consent, API/OAuth
+credentials, approval/trust flags, or moderator fields. Browser reports are
+always rebound server-side to source class `human` and the authenticated GitHub
+identity. Never put a secret in this URL; URLs may be retained in browser,
+proxy, and server logs.

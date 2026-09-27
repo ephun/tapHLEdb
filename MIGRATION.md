@@ -35,6 +35,10 @@ Repopulate only reviewed Apps/Versions through `POST /api/catalog`, including
 the extracted bundle ID, build, exact app hash, and icon. These entries appear
 as `❓❓❓❓❓` until an approved normal-release compatibility report exists.
 
+The authenticated browser handoff used by tapHLE is documented under
+"Authenticated browser prefill" in `API.md`. It is a draft-only URL contract;
+it does not replace catalog migration, approval, or report validation.
+
 To roll back: stop writers, move the v2 database aside, move the timestamped
 `.pre-v2-*.sqlite3` file back to the configured database path, restore the old
 code/config, then restart PHP. Keep the `.bak` and JSON export until the new
