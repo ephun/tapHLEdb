@@ -70,7 +70,8 @@ try {
             throw new ApiSubmissionError('app_id must be an integer');
         }
         $appId = $body['app_id'];
-        if (getApp($appId) === NULL) {
+        $app = getApp($appId);
+        if ($app === NULL) {
             throw new ApiSubmissionError('app_id does not exist');
         }
     } else {
@@ -96,8 +97,8 @@ try {
         }
     }
 
-    // --- version: an explicit id, else an existing version of this app with the
-    // --- same name, else a new (unapproved) version.
+    // --- version: an explicit id, else the same bundle build + artifact hash,
+    // --- else a new (unapproved) version.
     if (isset($body['version_id'])) {
         if (!\is_int($body['version_id'])) {
             throw new ApiSubmissionError('version_id must be an integer');
@@ -123,7 +124,7 @@ try {
         if (!\is_array($versionExtra)) {
             throw new ApiSubmissionError('version.extra must be an object');
         }
-        $versionId = apiFindVersionIdByName($appId, $versionName);
+        $versionId = apiFindVersionIdByBuild($appId, $versionExtra, $trustedCredential);
         if ($versionId === NULL) {
             if (!apiRequiredExtraFieldsPresent(VERSION_EXTRA_FIELDS, $versionExtra)) {
                 throw new ApiSubmissionError('version.extra is missing a required field');
@@ -138,6 +139,12 @@ try {
         }
     }
 
+    // A trusted extracted submission may attach/correct a legacy manual row
+    // before report validation compares the exact app artifact hash.
+    if (isset($app) && isset($version)) {
+        apiCorrectCanonicalMetadata($appId, $app, $versionId, $version, $trustedCredential);
+    }
+
     // --- report: always new; trust determines approval after validation.
     $report = $body['report'] ?? NULL;
     if (!\is_array($report)) {
@@ -147,13 +154,15 @@ try {
     if (!\is_array($reportExtra)) {
         throw new ApiSubmissionError('report.extra must be an object');
     }
+    $reportExtra['source_identity'] = $externalIdentity;
+    $report['extra'] = $reportExtra;
     if (!apiRequiredExtraFieldsPresent(REPORT_EXTRA_FIELDS, $reportExtra)) {
         throw new ApiSubmissionError('report.extra is missing a required field');
     }
-    if (!\is_int($report['rating'] ?? NULL)) {
-        throw new ApiSubmissionError('report.rating must be an integer from 1 to 5');
+    if (!\is_string($report['compatibility_state'] ?? NULL)) {
+        throw new ApiSubmissionError('report.compatibility_state must be one of the ten cumulative states');
     }
-    apiValidateReportSemantics($reportExtra, $report['rating']);
+    apiValidateReportSemantics($reportExtra, $report['compatibility_state'], isset($report['screenshot']) && $report['screenshot'] !== '');
     // createReport() treats a screenshot of '' as "none", but an absent key
     // arrives as NULL and is rejected as a malformed data URL. The web form
     // always posts an empty string from a hidden input, so it never hits that;
@@ -166,7 +175,7 @@ try {
     $report['created_by'] = $userId;
     $reportId = createReport($report);
     if ($reportId === NULL) {
-        throw new ApiSubmissionError('report was rejected (check rating, extra fields and screenshot)');
+        throw new ApiSubmissionError('report was rejected (check compatibility state, provenance, evidence and screenshot)');
     }
 
     apiApplyTrustedApproval(

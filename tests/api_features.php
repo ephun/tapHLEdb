@@ -1,4 +1,8 @@
 <?php declare(strict_types=1);
+require __DIR__ . '/compatibility_model.php';
+exit;
+/* Legacy pre-v2 test retained below for archeology; compatibility_model.php is
+ * the executable suite.
 const SITE_DB_PATH = ':memory:';
 const SITE_BASE_PATH = '';
 const APP_IDENTITY_FIELD = 'bundle_identifier';
@@ -39,9 +43,9 @@ use function hikari_no_yume\touchHLE\app_compatibility_db\reportScreenshotCacheC
 use function hikari_no_yume\touchHLE\app_compatibility_db\initDb;
 use function hikari_no_yume\touchHLE\app_compatibility_db\query;
 use function hikari_no_yume\touchHLE\app_compatibility_db\validateExtraFields;
-function same(mixed $e,mixed $a,string $m):void{if($e!==$a)throw new RuntimeException("$m expected=".var_export($e,TRUE)." actual=".var_export($a,TRUE));}
-function yes(bool $a,string $m):void{if(!$a)throw new RuntimeException($m);}
-function throws(callable $c,string $m):void{try{$c();}catch(Throwable){return;}throw new RuntimeException($m);}
+function legacySame(mixed $e,mixed $a,string $m):void{if($e!==$a)throw new RuntimeException("$m expected=".var_export($e,TRUE)." actual=".var_export($a,TRUE));}
+function legacyYes(bool $a,string $m):void{if(!$a)throw new RuntimeException($m);}
+function legacyThrows(callable $c,string $m):void{try{$c();}catch(Throwable){return;}throw new RuntimeException($m);}
 function report(array $o=[]):array{return array_replace([
  'source_type'=>'agent','source_name'=>'tapHLE Lead','platform'=>'Windows','architecture'=>'x86_64','os_version'=>'11 24H2',
  'taphle_commit'=>str_repeat('a',40),'artifact_sha256'=>str_repeat('b',64),'app_artifact_sha256'=>str_repeat('c',64),
@@ -81,3 +85,4 @@ $invalidReleaseReport=createReport(['created_by'=>1,'version_id'=>1,'rating'=>3,
 $jpeg="\xFF\xD8\xFF\xD9";$screenshotId=createReport(['created_by'=>1,'version_id'=>1,'rating'=>3,'extra'=>report(),'screenshot'=>'data:image/jpeg;base64,'.base64_encode($jpeg)]);yes(is_int($screenshotId),'screenshot report created');same($jpeg,getReportScreenshotImage($screenshotId),'optional screenshot round trip');
 query("INSERT INTO users(user_id,external_user_id,external_username) VALUES(2,'agent:other','agent:other')");query("INSERT INTO apps(app_id,created,created_by,name,extra) VALUES(3,datetime(),2,'Other','{\"bundle_identifier\":\"com.example.other\"}')");query("INSERT INTO versions(version_id,app_id,created,created_by,name,extra) VALUES(3,3,datetime(),2,'1.0','{\"bundle_version\":\"1.0\"}')");query('INSERT INTO reports(report_id,version_id,created,created_by,rating,extra) VALUES(99,3,datetime(),1,3,:extra)',[':extra'=>json_encode(report())]);throws(fn()=>apiApplyTrustedApproval(TRUE,1,3,FALSE,3,FALSE,99),'trusted credential cannot publish another submitter hierarchy');
 @unlink(SITE_DB_PATH);echo "api feature tests passed\n";
+*/

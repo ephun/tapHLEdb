@@ -43,6 +43,9 @@ if ($path === '/') {
 } else if (preg_match('#^/apps/(\d+)/$#', $path, $matches) === 1) {
     $appId = (int)$matches[1];
     require '../templates/app.phpt';
+} else if (preg_match('#^/apps/(\d+)/icon/$#', $path, $matches) === 1) {
+    $appId = (int)$matches[1];
+    require '../templates/app_icon.phpt';
 } else if (preg_match('#^/apps/(\d+)/approve/$#', $path, $matches) === 1) {
     $appId = (int)$matches[1];
     $objectKind = 'app';
@@ -53,6 +56,11 @@ if ($path === '/') {
     $objectKind = 'app';
     $moderationAction = 'delete';
     require '../templates/moderation_action.phpt';
+} else if (preg_match('#^/apps/(\d+)/merge/$#', $path, $matches) === 1) {
+    $appId = (int)$matches[1];
+    $objectKind = 'app';
+    $moderationAction = 'merge';
+    require '../templates/moderation_action.phpt';
 } else if (preg_match('#^/versions/(\d+)/approve/$#', $path, $matches) === 1) {
     $versionId = (int)$matches[1];
     $objectKind = 'version';
@@ -62,6 +70,11 @@ if ($path === '/') {
     $versionId = (int)$matches[1];
     $objectKind = 'version';
     $moderationAction = 'delete';
+    require '../templates/moderation_action.phpt';
+} else if (preg_match('#^/versions/(\d+)/merge/$#', $path, $matches) === 1) {
+    $versionId = (int)$matches[1];
+    $objectKind = 'version';
+    $moderationAction = 'merge';
     require '../templates/moderation_action.phpt';
 } else if (preg_match('#^/reports/(\d+)/approve/$#', $path, $matches) === 1) {
     $reportId = (int)$matches[1];
@@ -86,6 +99,11 @@ if ($path === '/') {
 } else if (preg_match('#^/reports/(\d+)/screenshot/$#', $path, $matches) === 1) {
     $reportId = (int)$matches[1];
     require '../templates/report_screenshot.phpt';
+} else if (preg_match('#^/notes/(\d+)/(approve|delete)/$#', $path, $matches) === 1) {
+    $noteId = (int)$matches[1];
+    $objectKind = 'note';
+    $moderationAction = $matches[2];
+    require '../templates/moderation_action.phpt';
 } else if ($path === '/reports/new/') {
     require '../templates/new_report.phpt';
 } else if ($path === '/signin/') {
@@ -97,6 +115,10 @@ if ($path === '/') {
 } else if ($path === '/api/report/') {
     // tapHLE addition: token-authenticated JSON report submission (API.md).
     require '../templates/api_report.phpt';
+} else if ($path === '/api/catalog/') {
+    require '../templates/api_catalog.phpt';
+} else if ($path === '/api/note/') {
+    require '../templates/api_note.phpt';
 } else if ($path === '/api/apps/') {
     // tapHLE addition: public JSON app list, no credential needed (API.md).
     require '../templates/api_apps.phpt';

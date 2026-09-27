@@ -21,6 +21,18 @@ html {
     background: grey;
     color: white;
 }
+
+.app-icon {
+    width: 96px;
+    height: 96px;
+    object-fit: contain;
+    border-radius: 18px;
+}
+.app-icon-small {
+    width: 48px;
+    height: 48px;
+    border-radius: 9px;
+}
 .unapproved:target {
     background: olive;
 }

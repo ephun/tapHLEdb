@@ -110,7 +110,17 @@ function listApps(bool $showUnapproved): void {
         ;
     ', [':show_unapproved' => $showUnapproved]);
 
+    foreach ($rows as &$row) {
+        $row['compatibility_state'] = latestReleasedCompatibilityStateForApp((int)$row['app_id']);
+    }
+    unset($row);
+
     $columns = [
+        '_icon' => [
+            'name' => 'Icon',
+            'image' => '/apps/',
+            'image_id' => 'app_id',
+        ],
         'name' => [
             'name' => 'App name',
             'link' => ['/apps/', 'app_id', ($showUnapproved ? '?show_unapproved=1' : '')],
@@ -118,9 +128,9 @@ function listApps(bool $showUnapproved): void {
     ];
     $columns += convertExtraFieldInfo(APP_EXTRA_FIELDS, FALSE);
     $columns += [
-        'best_rating' => [
-            'name' => 'Best rating',
-            'rating' => TRUE,
+        'compatibility_state' => [
+            'name' => 'Latest released compatibility',
+            'compatibility_state' => TRUE,
         ],
         'last_updated' => [
             'name' => 'Last updated',
@@ -253,7 +263,7 @@ function printApp(array $appInfo, bool $moderatorView): void {
     printRecord($fields, $appInfo);
 }
 
-function printAppForm(): void {
+function printAppForm(array $values = []): void {
     $fields = [
         'name' => [
             'name' => 'App name',
@@ -262,8 +272,13 @@ function printAppForm(): void {
     ];
     $fields += convertExtraFieldInfo(APP_EXTRA_FIELDS, FALSE);
     $fields += convertExtraFieldInfo(APP_EXTRA_FIELDS, TRUE);
+    $fields['icon'] = [
+        'name' => 'App icon (PNG or JPEG)',
+        'image_upload' => TRUE,
+        'required' => TRUE,
+    ];
 
-    printRecordForm($fields, 'app');
+    printRecordForm($fields, 'app', $values);
 }
 
 // It is recommended to call this as part of a transaction.
@@ -286,6 +301,10 @@ function createApp(array $app): ?int {
         return NULL;
     }
     if (!validateExtraFields(APP_EXTRA_FIELDS, $extra)) {
+        return NULL;
+    }
+    $icon = decodeUploadedImage($app['icon'] ?? NULL, 512 * 1000);
+    if ($icon === NULL) {
         return NULL;
     }
     $extra = json_encode($extra);
@@ -311,7 +330,79 @@ function createApp(array $app): ?int {
         ':name' => $name,
         ':extra' => $extra,
     ]);
-    return dbGetInsertedId();
+    $appId = dbGetInsertedId();
+    query('INSERT INTO app_icons(app_id, mime_type, image) VALUES(:app_id, :mime_type, :image);', [
+        ':app_id' => $appId,
+        ':mime_type' => $icon['mime_type'],
+        ':image' => $icon['image'],
+    ]);
+    return $appId;
+}
+
+function listEndUserVersionsForApp(int $appId): void {
+    $rows = query('SELECT version_id,name,extra FROM versions
+        WHERE app_id=:app_id AND approved IS NOT NULL ORDER BY name;', [':app_id'=>$appId]);
+    foreach ($rows as &$row) {
+        $row['compatibility_state']=latestReleasedCompatibilityStateForVersion((int)$row['version_id']);
+        $platformRows=query('SELECT compatibility_state,json_extract(extra,\'$.platform\') AS platform
+            FROM reports WHERE version_id=:version AND approved IS NOT NULL
+              AND json_extract(extra,\'$.verification_type\')=\'compatibility\'
+              AND json_extract(extra,\'$.release_channel\')=\'normal_release\'
+            ORDER BY json_extract(extra,\'$.tested_at\') DESC,report_id DESC;', [':version'=>$row['version_id']]);
+        $states=[];
+        foreach($platformRows as $platformRow){$platform=(string)$platformRow['platform'];if(!isset($states[$platform]))$states[$platform]=compatibilityStateSymbol((string)$platformRow['compatibility_state']);}
+        ksort($states);
+        $row['platform_summary']=implode(', ',array_map(fn($platform,$state)=>$platform.': '.$state,array_keys($states),array_values($states)));
+    }
+    unset($row);
+    printTable([
+        'name'=>['name'=>'Version'],
+        'short_version'=>['name'=>'Short version','extra'=>TRUE],
+        'compatibility_state'=>['name'=>'Latest released compatibility','compatibility_state'=>TRUE],
+        'platform_summary'=>['name'=>'Platform exceptions'],
+    ],$rows);
+}
+
+function latestReleasedCompatibilityStateForApp(int $appId): string {
+    $rows = query('SELECT reports.compatibility_state
+        FROM reports JOIN versions ON versions.version_id = reports.version_id
+        WHERE versions.app_id = :app_id AND reports.approved IS NOT NULL
+          AND versions.approved IS NOT NULL
+          AND json_extract(reports.extra, \'$.verification_type\') = \'compatibility\'
+          AND json_extract(reports.extra, \'$.release_channel\') = \'normal_release\'
+        ORDER BY json_extract(reports.extra, \'$.tested_at\') DESC, reports.report_id DESC LIMIT 1;',
+        [':app_id' => $appId]);
+    return $rows === [] ? '?????' : (string)$rows[0]['compatibility_state'];
+}
+
+function latestReleasedCompatibilityStateForVersion(int $versionId): string {
+    $rows = query('SELECT compatibility_state FROM reports
+        WHERE version_id = :version_id AND approved IS NOT NULL
+          AND json_extract(extra, \'$.verification_type\') = \'compatibility\'
+          AND json_extract(extra, \'$.release_channel\') = \'normal_release\'
+        ORDER BY json_extract(extra, \'$.tested_at\') DESC, report_id DESC LIMIT 1;',
+        [':version_id' => $versionId]);
+    return $rows === [] ? '?????' : (string)$rows[0]['compatibility_state'];
+}
+
+function decodeUploadedImage($value, int $maximumBytes): ?array {
+    if (!is_string($value) || !preg_match('#\Adata:(image/(?:png|jpeg));base64,(.+)\z#s', $value, $matches)) {
+        return NULL;
+    }
+    $image = base64_decode($matches[2], TRUE);
+    if ($image === FALSE || $image === '' || strlen($image) > $maximumBytes) {
+        return NULL;
+    }
+    if (($matches[1] === 'image/png' && !str_starts_with($image, "\x89PNG\r\n\x1a\n")) ||
+        ($matches[1] === 'image/jpeg' && !str_starts_with($image, "\xFF\xD8\xFF"))) {
+        return NULL;
+    }
+    return ['mime_type' => $matches[1], 'image' => $image];
+}
+
+function getAppIcon(int $appId): ?array {
+    $rows = query('SELECT mime_type, image FROM app_icons WHERE app_id = :app_id;', [':app_id' => $appId]);
+    return $rows === [] ? NULL : $rows[0];
 }
 
 // It is recommended to call this as part of a transaction.
@@ -324,7 +415,8 @@ function approveApp(int $appId, int $approvedByUserId): void {
             approved_by = :approved_by_user_id
         WHERE
             app_id = :app_id AND
-            approved IS NULL
+            approved IS NULL AND
+            EXISTS(SELECT 1 FROM app_icons WHERE app_icons.app_id = apps.app_id)
         ;
     ', [
         ':app_id' => $appId,
@@ -336,6 +428,10 @@ function approveApp(int $appId, int $approvedByUserId): void {
 // It deletes not only the app, but also its connected versions and reports!
 // There is no audit log or undo!
 function deleteApp(int $appId): void {
+    query('DELETE FROM developer_notes WHERE app_id=:app_id
+        OR version_id IN (SELECT version_id FROM versions WHERE app_id=:app_id)
+        OR report_id IN (SELECT reports.report_id FROM reports JOIN versions ON versions.version_id=reports.version_id WHERE versions.app_id=:app_id);', [':app_id'=>$appId]);
+    query('DELETE FROM app_icons WHERE app_id = :app_id;', [':app_id' => $appId]);
     query('
         DELETE FROM
             report_screenshots
@@ -461,6 +557,10 @@ function listVersionsForApp(int $appId, bool $showUnapproved, bool $moderatorVie
         ':app_id' => $appId,
         ':show_unapproved' => $showUnapproved,
     ]);
+    foreach ($rows as &$row) {
+        $row['compatibility_state'] = latestReleasedCompatibilityStateForVersion((int)$row['version_id']);
+    }
+    unset($row);
 
     $columns = [
         'name' => [
@@ -469,9 +569,9 @@ function listVersionsForApp(int $appId, bool $showUnapproved, bool $moderatorVie
     ];
     $columns += convertExtraFieldInfo(VERSION_EXTRA_FIELDS, FALSE);
     $columns += [
-        'best_rating' => [
-            'name' => 'Best rating',
-            'rating' => TRUE,
+        'compatibility_state' => [
+            'name' => 'Latest released compatibility',
+            'compatibility_state' => TRUE,
         ],
         'last_updated' => [
             'name' => 'Last updated',
@@ -528,7 +628,7 @@ function listVersionsForApp(int $appId, bool $showUnapproved, bool $moderatorVie
     printTable($columns, $rows, ['version-', 'version_id']);
 }
 
-function printVersionForm(): void {
+function printVersionForm(array $values = []): void {
     $fields = [
         'name' => [
             'name' => 'Version number',
@@ -538,7 +638,7 @@ function printVersionForm(): void {
     $fields += convertExtraFieldInfo(VERSION_EXTRA_FIELDS, FALSE);
     $fields += convertExtraFieldInfo(VERSION_EXTRA_FIELDS, TRUE);
 
-    printRecordForm($fields, 'version');
+    printRecordForm($fields, 'version', $values);
 }
 
 // It is recommended to call this as part of a transaction.
@@ -619,6 +719,8 @@ function approveVersion(int $versionId, int $approvedByUserId): void {
 // It deletes not only the version, but also its connected reports!
 // There is no audit log or undo!
 function deleteVersion(int $versionId): void {
+    query('DELETE FROM developer_notes WHERE version_id=:version_id
+        OR report_id IN (SELECT report_id FROM reports WHERE version_id=:version_id);', [':version_id'=>$versionId]);
     query('
         DELETE FROM
             report_screenshots
@@ -655,7 +757,7 @@ function deleteVersion(int $versionId): void {
 function getReport(int $id): ?array {
     $rows = query('
         SELECT
-            *,
+            reports.*,
             versions.app_id
         FROM
             reports
@@ -712,11 +814,22 @@ function listReportsForApp(int $appId, bool $showUnapproved, bool $moderatorView
             versions.version_id AS version_id,
             versions.name AS version_name,
             reports.rating AS rating,
+            reports.compatibility_state AS compatibility_state,
             reports.created AS created,
             users.external_username AS created_by_username,
             (reports.approved IS NULL) AS unapproved,
             reports.extra AS extra,
-            EXISTS (SELECT 1 FROM report_screenshots WHERE report_screenshots.report_id = reports.report_id) AS has_screenshot
+            EXISTS (SELECT 1 FROM report_screenshots WHERE report_screenshots.report_id = reports.report_id) AS has_screenshot,
+            EXISTS (
+                SELECT 1 FROM reports AS conflicting
+                WHERE conflicting.version_id = reports.version_id
+                  AND conflicting.report_id <> reports.report_id
+                  AND conflicting.approved IS NOT NULL
+                  AND json_extract(conflicting.extra, \'$.verification_type\') = \'compatibility\'
+                  AND json_extract(conflicting.extra, \'$.taphle_commit\') = json_extract(reports.extra, \'$.taphle_commit\')
+                  AND json_extract(conflicting.extra, \'$.platform\') = json_extract(reports.extra, \'$.platform\')
+                  AND conflicting.compatibility_state <> reports.compatibility_state
+            ) AS conflict
             ' . $extraColumns . '
         FROM
             reports
@@ -747,9 +860,9 @@ function listReportsForApp(int $appId, bool $showUnapproved, bool $moderatorView
     ];
     $columns += convertExtraFieldInfo(REPORT_EXTRA_FIELDS, FALSE);
     $columns += [
-        'rating' => [
-            'name' => 'Rating',
-            'rating' => TRUE,
+        'compatibility_state' => [
+            'name' => 'Compatibility state',
+            'compatibility_state' => TRUE,
         ],
         'created' => [
             'name' => 'Reported',
@@ -780,6 +893,10 @@ function listReportsForApp(int $appId, bool $showUnapproved, bool $moderatorView
             'link' => ['#report-screenshot-', 'report_id'],
             'link_label' => 'View',
             'link_if' => 'has_screenshot',
+        ],
+        'conflict' => [
+            'name' => 'Conflict',
+            'options' => [0 => '', 1 => '⚠ conflicting historical evidence'],
         ],
     ];
 
@@ -846,16 +963,18 @@ function listReportScreenshotsForApp(int $appId, bool $showUnapproved, bool $mod
     }
 }
 
-function printReportForm(): void {
+function printReportForm(array $values = []): void {
     $fields = convertExtraFieldInfo(REPORT_EXTRA_FIELDS, FALSE);
+    unset($fields['source_class'], $fields['source_subtype'], $fields['source_identity']);
     $fields += [
-        'rating' => [
-            'name' => 'Rating',
-            'rating' => TRUE,
+        'compatibility_state' => [
+            'name' => 'Compatibility state',
+            'compatibility_state' => TRUE,
             'required' => TRUE,
         ],
     ];
     $fields += convertExtraFieldInfo(REPORT_EXTRA_FIELDS, TRUE);
+    unset($fields['source_class'], $fields['source_subtype'], $fields['source_identity']);
 
     if (REPORT_SCREENSHOTS_ALLOWED) {
         $fields += [
@@ -866,7 +985,7 @@ function printReportForm(): void {
         ];
     }
 
-    printRecordForm($fields, 'report');
+    printRecordForm($fields, 'report', $values);
 }
 
 // It is recommended to call this as part of a transaction.
@@ -879,8 +998,12 @@ function createReport(array $report): ?int {
         return NULL;
     }
 
-    $rating = $report['rating'] ?? NULL;
-    if (!is_int($rating) || $rating < 1 || $rating > 5) {
+    $compatibilityState = $report['compatibility_state'] ?? NULL;
+    if (!is_string($compatibilityState)) {
+        return NULL;
+    }
+    $rating = compatibilityStateStarCount($compatibilityState);
+    if ($rating === NULL) {
         return NULL;
     }
 
@@ -889,7 +1012,7 @@ function createReport(array $report): ?int {
         return NULL;
     }
 
-    $screenshot = $report['screenshot'] ?? NULL;
+    $screenshot = $report['screenshot'] ?? '';
     if ($screenshot === '') {
         $screenshot = NULL;
     // This should be a base64 data URI for a JPEG image, which will have been
@@ -915,9 +1038,12 @@ function createReport(array $report): ?int {
     if (!is_array($extra)) {
         return NULL;
     }
-    if (!validateExtraFields(REPORT_EXTRA_FIELDS, $extra) ||
-        !validateVerificationFields($extra) ||
-        !validateReportRatingSource($rating, $extra)) {
+    $version = getVersion($versionId);
+    $versionExtra = $version === NULL ? NULL : json_decode((string)$version['extra'], TRUE);
+    if (!is_array($versionExtra) ||
+        ($versionExtra['app_artifact_sha256'] ?? NULL) !== ($extra['app_artifact_sha256'] ?? NULL) ||
+        !validateExtraFields(REPORT_EXTRA_FIELDS, $extra) ||
+        !validateReportPolicy($compatibilityState, $extra, $screenshot !== NULL)) {
         return NULL;
     }
     $extra = json_encode($extra);
@@ -929,6 +1055,7 @@ function createReport(array $report): ?int {
                 created,
                 created_by,
                 rating,
+                compatibility_state,
                 extra
             )
         VALUES
@@ -937,6 +1064,7 @@ function createReport(array $report): ?int {
                 datetime(),
                 :created_by,
                 :rating,
+                :compatibility_state,
                 :extra
             )
         ;
@@ -944,6 +1072,7 @@ function createReport(array $report): ?int {
         ':version_id' => $versionId,
         ':created_by' => $createdBy,
         ':rating' => $rating,
+        ':compatibility_state' => $compatibilityState,
         ':extra' => $extra,
     ]);
     $reportId = dbGetInsertedId();
@@ -1001,7 +1130,21 @@ function userHasUnapprovedItems(int $userId): bool {
 }
 
 // It is recommended to call this as part of a transaction.
+function reportSatisfiesCurrentPolicy(int $reportId): bool {
+    $report = getReport($reportId);
+    if ($report === NULL) return FALSE;
+    $extra = json_decode((string)$report['extra'], TRUE);
+    $version = getVersion((int)$report['version_id']);
+    $versionExtra = $version === NULL ? NULL : json_decode((string)$version['extra'], TRUE);
+    if (!is_array($extra) || !is_array($versionExtra) ||
+        ($extra['app_artifact_sha256'] ?? NULL) !== ($versionExtra['app_artifact_sha256'] ?? NULL)) {
+        return FALSE;
+    }
+    return validateReportPolicy((string)$report['compatibility_state'], $extra, getReportScreenshotImage($reportId) !== NULL);
+}
+
 function approveReport(int $reportId, int $approvedByUserId): void {
+    if (!reportSatisfiesCurrentPolicy($reportId)) return;
     query('
         UPDATE
             reports
@@ -1021,6 +1164,7 @@ function approveReport(int $reportId, int $approvedByUserId): void {
 // This must be called as part of a transaction!
 // There is no audit log or undo!
 function deleteReport(int $reportId): void {
+    query('DELETE FROM developer_notes WHERE report_id=:report_id;', [':report_id'=>$reportId]);
     query('
         DELETE FROM
             report_screenshots
@@ -1041,6 +1185,13 @@ function deleteReport(int $reportId): void {
 // It is recommended to call this as part of a transaction.
 // There is no audit log or undo!
 function deleteReportScreenshot(int $reportId): void {
+    $report = getReport($reportId);
+    if ($report !== NULL) {
+        $extra = json_decode((string)$report['extra'], TRUE);
+        if (is_array($extra) && !validateReportPolicy((string)$report['compatibility_state'], $extra, FALSE)) {
+            return;
+        }
+    }
     query('
         DELETE FROM
             report_screenshots
@@ -1054,6 +1205,14 @@ function deleteReportScreenshot(int $reportId): void {
 // ensure this will not orphan the report).
 // There is no audit log or undo!
 function reparentReport(int $reportId, int $versionId): void {
+    $report = getReport($reportId);
+    $version = getVersion($versionId);
+    $reportExtra = $report === NULL ? NULL : json_decode((string)$report['extra'], TRUE);
+    $versionExtra = $version === NULL ? NULL : json_decode((string)$version['extra'], TRUE);
+    if (!is_array($reportExtra) || !is_array($versionExtra) ||
+        ($reportExtra['app_artifact_sha256'] ?? NULL) !== ($versionExtra['app_artifact_sha256'] ?? NULL)) {
+        return;
+    }
     query('
         UPDATE
             reports
@@ -1066,6 +1225,109 @@ function reparentReport(int $reportId, int $versionId): void {
         ':report_id' => $reportId,
         ':version_id' => $versionId,
     ]);
+}
+
+// Moderator-only duplicate correction helpers. Reports remain intact.
+function versionsHaveMatchingProvenance(int $sourceVersionId, int $targetVersionId): bool {
+    $source = getVersion($sourceVersionId);
+    $target = getVersion($targetVersionId);
+    if ($source === NULL || $target === NULL || (int)$source['app_id'] !== (int)$target['app_id']) {
+        return FALSE;
+    }
+    $sourceExtra = json_decode((string)$source['extra'], TRUE);
+    $targetExtra = json_decode((string)$target['extra'], TRUE);
+    return is_array($sourceExtra) && is_array($targetExtra) &&
+        ($sourceExtra['bundle_version'] ?? NULL) === ($targetExtra['bundle_version'] ?? NULL) &&
+        strtolower((string)($sourceExtra['app_artifact_sha256'] ?? '')) ===
+            strtolower((string)($targetExtra['app_artifact_sha256'] ?? ''));
+}
+
+function mergeVersionInto(int $sourceVersionId, int $targetVersionId): bool {
+    if (!versionsHaveMatchingProvenance($sourceVersionId, $targetVersionId)) {
+        return FALSE;
+    }
+    query('UPDATE reports SET version_id=:target WHERE version_id=:source;', [':target'=>$targetVersionId, ':source'=>$sourceVersionId]);
+    query('UPDATE developer_notes SET version_id=:target WHERE version_id=:source;', [':target'=>$targetVersionId, ':source'=>$sourceVersionId]);
+    query('DELETE FROM versions WHERE version_id=:source;', [':source'=>$sourceVersionId]);
+    return TRUE;
+}
+
+function mergeAppInto(int $sourceAppId, int $targetAppId): void {
+    $versions = query('SELECT version_id,extra FROM versions WHERE app_id=:source ORDER BY version_id;', [':source'=>$sourceAppId]);
+    foreach ($versions as $version) {
+        $extra = json_decode((string)$version['extra'], TRUE);
+        $targetVersion = NULL;
+        if (is_array($extra)) {
+            $matches = query('SELECT version_id FROM versions WHERE app_id=:app
+                AND json_extract(extra, \'$.bundle_version\')=:build
+                AND lower(json_extract(extra, \'$.app_artifact_sha256\'))=lower(:hash)
+                ORDER BY version_id LIMIT 1;', [
+                ':app'=>$targetAppId,
+                ':build'=>$extra['bundle_version'] ?? NULL,
+                ':hash'=>$extra['app_artifact_sha256'] ?? NULL,
+            ]);
+            if ($matches !== []) $targetVersion = (int)$matches[0]['version_id'];
+        }
+        if ($targetVersion === NULL) {
+            query('UPDATE versions SET app_id=:target WHERE version_id=:version;', [':target'=>$targetAppId, ':version'=>$version['version_id']]);
+        } else {
+            query('UPDATE reports SET version_id=:target WHERE version_id=:source;', [':target'=>$targetVersion, ':source'=>$version['version_id']]);
+            query('UPDATE developer_notes SET version_id=:target WHERE version_id=:source;', [':target'=>$targetVersion, ':source'=>$version['version_id']]);
+            query('DELETE FROM versions WHERE version_id=:source;', [':source'=>$version['version_id']]);
+        }
+    }
+    query('UPDATE developer_notes SET app_id=:target WHERE app_id=:source;', [':target'=>$targetAppId, ':source'=>$sourceAppId]);
+    query('INSERT OR IGNORE INTO app_icons(app_id,mime_type,image) SELECT :target,mime_type,image FROM app_icons WHERE app_id=:source;', [':target'=>$targetAppId, ':source'=>$sourceAppId]);
+    query('DELETE FROM app_icons WHERE app_id=:source;', [':source'=>$sourceAppId]);
+    query('DELETE FROM apps WHERE app_id=:source;', [':source'=>$sourceAppId]);
+}
+
+function createDeveloperNote(array $note, bool $trusted = FALSE): ?int {
+    $createdBy = $note['created_by'] ?? NULL;
+    $body = $note['body'] ?? NULL;
+    if (!is_int($createdBy) || !is_string($body) || trim($body) === '' || strlen($body) > 8000) return NULL;
+    $targets = ['app_id'=>$note['app_id'] ?? NULL,'version_id'=>$note['version_id'] ?? NULL,'report_id'=>$note['report_id'] ?? NULL];
+    $present = array_filter($targets, fn($value)=>is_int($value));
+    if (count($present) !== 1) return NULL;
+    if (isset($present['app_id']) && getApp($present['app_id']) === NULL) return NULL;
+    if (isset($present['version_id']) && getVersion($present['version_id']) === NULL) return NULL;
+    if (isset($present['report_id']) && getReport($present['report_id']) === NULL) return NULL;
+    query('INSERT INTO developer_notes(created,created_by,approved,approved_by,app_id,version_id,report_id,body)
+        VALUES(datetime(),:created_by,:approved,:approved_by,:app_id,:version_id,:report_id,:body);', [
+        ':created_by'=>$createdBy, ':approved'=>$trusted ? gmdate('Y-m-d H:i:s') : NULL, ':approved_by'=>$trusted ? $createdBy : NULL,
+        ':app_id'=>$targets['app_id'], ':version_id'=>$targets['version_id'], ':report_id'=>$targets['report_id'], ':body'=>trim($body),
+    ]);
+    return dbGetInsertedId();
+}
+
+function getDeveloperNote(int $noteId): ?array {
+    $rows=query('SELECT * FROM developer_notes WHERE note_id=:id;',[':id'=>$noteId]);
+    return $rows===[]?NULL:$rows[0];
+}
+function approveDeveloperNote(int $noteId,int $userId):void {
+    query('UPDATE developer_notes SET approved=datetime(),approved_by=:user WHERE note_id=:id AND approved IS NULL;',[':user'=>$userId,':id'=>$noteId]);
+}
+function deleteDeveloperNote(int $noteId):void { query('DELETE FROM developer_notes WHERE note_id=:id;',[':id'=>$noteId]); }
+
+function listDeveloperNotesForApp(int $appId, bool $showUnapproved): void {
+    $rows = query('SELECT developer_notes.*, (developer_notes.approved IS NULL) AS unapproved, users.external_username AS created_by_username,
+        versions.name AS version_name, reports.report_id AS attached_report
+        FROM developer_notes
+        LEFT JOIN users ON users.user_id=developer_notes.created_by
+        LEFT JOIN versions ON versions.version_id=developer_notes.version_id
+        LEFT JOIN reports ON reports.report_id=developer_notes.report_id
+        LEFT JOIN versions report_versions ON report_versions.version_id=reports.version_id
+        WHERE (developer_notes.app_id=:app OR versions.app_id=:app OR report_versions.app_id=:app)
+          AND (:show OR developer_notes.approved IS NOT NULL)
+        ORDER BY developer_notes.created DESC;', [':app'=>$appId,':show'=>$showUnapproved]);
+    $fields = [
+        'body'=>['name'=>'Note'], 'version_name'=>['name'=>'Version'], 'attached_report'=>['name'=>'Report/test run'],
+        'created'=>['name'=>'Created','datetime'=>TRUE], 'created_by_username'=>['name'=>'Author','external_username'=>TRUE],
+    ];
+    if ($showUnapproved) {
+        $fields['_buttons']=['name'=>'','buttons'=>moderationActionButtons('/notes/','note_id','note',FALSE)];
+    }
+    printTable($fields, $rows);
 }
 
 // Gets the internal user ID using an external user ID. See createOrGetUserId()
@@ -1183,6 +1445,11 @@ function cleanUpUsers(): void {
                     WHERE
                         created_by = users.user_id OR
                         approved_by = users.user_id
+                ))
+            AND
+                (NOT EXISTS(
+                    SELECT 1 FROM developer_notes
+                    WHERE created_by = users.user_id OR approved_by = users.user_id
                 ))
         ;
     ');

@@ -15,9 +15,11 @@ try {
 } catch (ApiSubmissionError $error) {
     apiError(400, 'invalid_query', $error->getMessage());
 }
+$qualification = apiValidateReleaseQualification($verifications, RELEASE_REQUIRED_PLATFORMS);
 apiRespond(200, [
     'release' => $release,
     'commit' => $commit,
     'verifications' => $verifications,
     'count' => count($verifications),
+    'qualification' => $qualification,
 ]);

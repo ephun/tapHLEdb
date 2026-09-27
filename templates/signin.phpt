@@ -10,7 +10,8 @@ if (getSession() !== NULL) {
 
 $breadcrumbs = ['Sign in'];
 
-$githubSignInUrl = GITHUB_OAUTH_AUTHORIZE_URL . '?client_id=' . rawurlencode(GITHUB_CLIENT_ID);
+$returnTo = oauthReturnPath($_GET['return_to'] ?? '/');
+$oauthState = createOAuthState($returnTo);
 
 // Prevent there being two “Sign in” buttons on the same page, which could be
 // confusing.
@@ -46,6 +47,7 @@ require 'header.phpt';
 
 <form method=get action="https://github.com/login/oauth/authorize">
     <input type=hidden name=client_id value="<?=htmlspecialchars(GITHUB_CLIENT_ID)?>">
+    <input type=hidden name=state value="<?=htmlspecialchars($oauthState)?>">
     <input type=submit value="Sign in with GitHub">
 </form>
 

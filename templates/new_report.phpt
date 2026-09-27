@@ -2,9 +2,14 @@
 
 namespace hikari_no_yume\touchHLE\app_compatibility_db;
 
+require_once '../include/api.php';
+require_once '../include/web_prefill.php';
+
 $session = getSession();
 if ($session === NULL) {
-    redirect('/signin');
+    $query = http_build_query($_GET, '', '&', PHP_QUERY_RFC3986);
+    $returnTo = '/reports/new' . ($query === '' ? '' : '?' . $query);
+    redirect('/signin?return_to=' . rawurlencode($returnTo));
     exit;
 }
 
@@ -42,7 +47,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $app = $_POST['app'] ?? NULL;
         if (is_string($app)) {
             // Existing app.
-            $appId = (int)$app;
+            try {
+                $appId = webPrefillQueryId(['app' => $app], 'app');
+            } catch (WebPrefillError $e) {
+                exit400();
+            }
             if (getApp($appId) === NULL) {
                 // It's unlikely this would happen accidentally, so there's no
                 // need for a pretty error page.
@@ -51,9 +60,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else if (is_array($app)) {
             // New app.
             $app['created_by'] = $userId;
-            $appId = createApp($app);
+            $appExtra = $app['extra'] ?? NULL;
+            $appId = is_array($appExtra) ? apiFindAppIdByIdentity($appExtra) : NULL;
             if ($appId === NULL) {
-                exit400();
+                $appId = createApp($app);
+                if ($appId === NULL) {
+                    exit400();
+                }
             }
         } else {
             exit400();
@@ -62,17 +75,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $version = $_POST['version'] ?? NULL;
         if (is_string($version)) {
             // Existing version.
-            $versionId = (int)$version;
-            if (getVersion($versionId) === NULL) {
+            try {
+                $versionId = webPrefillQueryId(['version' => $version], 'version');
+            } catch (WebPrefillError $e) {
+                exit400();
+            }
+            $existingVersion = getVersion($versionId);
+            if ($existingVersion === NULL || (int)$existingVersion['app_id'] !== $appId) {
                 exit400();
             }
         } else if (is_array($version)) {
             // New version.
             $version['app_id'] = $appId;
             $version['created_by'] = $userId;
-            $versionId = createVersion($version);
+            $versionExtra = $version['extra'] ?? NULL;
+            $versionId = is_array($versionExtra) ? apiFindVersionIdByBuild($appId, $versionExtra) : NULL;
             if ($versionId === NULL) {
-                exit400();
+                $versionId = createVersion($version);
+                if ($versionId === NULL) {
+                    exit400();
+                }
             }
         } else {
             exit400();
@@ -82,8 +104,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (is_array($report)) {
             // New report.
             $report['version_id'] = $versionId;
-            $report['rating'] = (int)($report['rating'] ?? 0);
             $report['created_by'] = $userId;
+            $report['extra'] = is_array($report['extra'] ?? NULL) ? $report['extra'] : [];
+            $report['extra']['source_class'] = 'human';
+            $report['extra']['source_identity'] = $session['external_user_id'];
+            unset($report['extra']['source_subtype']);
             $reportId = createReport($report);
             if ($reportId === NULL) {
                 exit400();
@@ -105,31 +130,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$appId = $_GET['app'] ?? NULL;
-$versionId = $_GET['version'] ?? NULL;
-
-if ($versionId !== NULL) {
-    $versionId = (int)$versionId;
-    $versionInfo = getVersion($versionId);
-    if ($versionInfo === NULL) {
+try {
+    $resolvedPrefill = resolveWebReportPrefill($_GET);
+} catch (WebPrefillError $e) {
+    if ($e->notFound) {
         show404();
-        exit;
     }
-    $appId = (int)$versionInfo['app_id'];
-} else {
-    $versionInfo = NULL;
+    exit400();
 }
-
-if ($appId !== NULL) {
-    $appId = (int)$appId;
-    $appInfo = getApp($appId);
-    if ($appInfo === NULL) {
-        show404();
-        exit;
-    }
-} else {
-    $appInfo = NULL;
-}
+$appId = $resolvedPrefill['app_id'];
+$appInfo = $resolvedPrefill['app_info'];
+$versionId = $resolvedPrefill['version_id'];
+$versionInfo = $resolvedPrefill['version_info'];
+$appPrefill = $resolvedPrefill['app'];
+$versionPrefill = $resolvedPrefill['version'];
+$reportPrefill = $resolvedPrefill['report'];
 
 $breadcrumbs = [];
 if ($appInfo !== NULL) {
@@ -148,6 +163,10 @@ require 'header.phpt';
 ?>
 
 <h2>Submit a new report</h2>
+
+<?php if ($resolvedPrefill['present']): ?>
+<p><strong>Review imported draft metadata before submitting.</strong> Prefill data is supplied by the client, remains editable for new records, and does not select a compatibility state or bypass moderation.</p>
+<?php endif; ?>
 
 <p>Thank you for choosing to contribute. Before submitting your contribution, please note that:</p>
 
@@ -188,7 +207,7 @@ require 'header.phpt';
 <legend>New app</legend>
 <p>Before submitting a report for a new app, <strong>please check the <a href="<?=htmlspecialchars(url('/apps'))?>">list of existing apps</a>.</strong></p>
 <p><?=htmlspecialchars(APP_GUIDANCE)?></p>
-<?php printAppForm(); ?>
+<?php printAppForm($appPrefill); ?>
 </fieldset>
 <?php endif; ?>
 
@@ -220,7 +239,7 @@ require 'header.phpt';
 <p>Before submitting a report for a new version, <strong>please check the <a href="<?=htmlspecialchars(url('/apps/' . $appId))?>">list of existing versions</a>.</strong></p>
 <?php endif; ?>
 <p><?=htmlspecialchars(VERSION_GUIDANCE)?></p>
-<?php printVersionForm(); ?>
+<?php printVersionForm($versionPrefill); ?>
 </fieldset>
 <?php endif; ?>
 
@@ -229,7 +248,7 @@ require 'header.phpt';
 <fieldset>
 <legend>Report</legend>
 <p><?=htmlspecialchars(REPORT_GUIDANCE)?></p>
-<?php printReportForm(); ?>
+<?php printReportForm($reportPrefill); ?>
 </fieldset>
 
 <input type=submit value="Submit report">

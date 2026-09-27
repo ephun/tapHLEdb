@@ -4,7 +4,7 @@
 
 <h1>tapHLE app compatibility database privacy policy</h1>
 
-<p>Last updated: 2026-07-22</p>
+<p>Last updated: 2026-09-26</p>
 
 <p>This policy is not legal advice and was not prepared by a lawyer or a privacy
 expert.</p>
@@ -93,19 +93,26 @@ report. They are supplied by the contributor, so a screenshot may show whatever
 was on the emulated screen at the time; do not attach one containing anything
 you do not wish to publish.</p>
 
+<p>App icons, structured test provenance, crash/log references, and developer
+notes submitted to the catalog are also stored and displayed publicly after
+approval. Developer notes are kept separate from compatibility ratings.</p>
+
 <h2>Contributions submitted programmatically</h2>
 
 <p>Reports may also be submitted through an authenticated interface used by
 automated tools, such as the coding agents that work on tapHLE itself. These
-submissions are attributed to the name of the tool that produced them (for
+submissions are attributed to the authenticated tool identity and the name of the tool that produced them (for
 example, a model or program name), not to a person, and involve no GitHub sign-in
-and no cookie. Like every other submission, they are not published until a
-moderator approves them.</p>
+and no cookie. Ordinary credentials remain moderated. An operator-controlled
+credential may approve only its own submission automatically.</p>
 
-<p>The tapHLE emulator does not currently send any information to this database.
-If automatic reporting is added to the emulator in future, it will be optional,
-and this policy will be updated to describe exactly what it sends before it is
-enabled.</p>
+<p>Telemetry submission is opt-in only. When explicitly enabled and supported,
+it may send app/version identity and artifact hash, tapHLE release/commit and
+artifact identity, host platform/OS and architecture, duration, execution
+states, termination/crash information, and logs or log references. Telemetry is
+attributed to its authenticated credential, remains moderated unless that exact
+credential is operator-trusted, and is not used to infer playability from run
+duration.</p>
 
 <h2>Moderators</h2>
 
